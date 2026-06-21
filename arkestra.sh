@@ -118,10 +118,10 @@ esac; }
 
 suggest_for() { list_models_for "$1" | head -6 | sed 's/^/      /'; }
 
-# ---- per-role: headless worker command (pane already cwd'd to the workspace) ----
-# All write the sentinel with exit code on completion. Narration streams to pane.
+# ---- per-role: the headless command that runs ONE task and exits ----
+# Used by `dispatch`. Writes the sentinel with exit code on completion.
 worker_cmd() {
-  local role="$1" model="$2" ws="$3" out="$4" task="$5"
+  local role="$1" model="$2" task="$3"
   case "$role" in
     arch)   echo "codex exec -s workspace-write -m '$model' '$task'";;
     coding) echo "opencode run -m '$model' '$task'";;
@@ -129,6 +129,12 @@ worker_cmd() {
     git)    echo "pi --model '$model' -p '$task'";;
     logs)   echo "gemini -p '$task'";;
   esac
+}
+
+# ---- worker_idle: the pane just shows it's ready; orchestrator dispatches later.
+worker_idle() {
+  local role="$1" model="$2"
+  echo "clear; printf '[$role pane ready - model $model]\\n[idle; orchestrator dispatches tasks here]\\n'"
 }
 
 # ---- order a want-list by PRIORITY, drop unused, no gaps ----
@@ -203,9 +209,12 @@ pick_workspace() {
 launch() {
   local roles="$1" repo="$2" ws="$3"
   local out="$ws/.agent-out"; mkdir -p "$out"
+  : > "$out/PANES.md"   # role -> pane map the orchestrator reads to dispatch
 
   tmux kill-session -t "$SESSION" 2>/dev/null || true
   tmux new-session -d -s "$SESSION" -n w0 -c "$ws"   # pane 0 = orchestrator (Claude)
+  tmux set -t "$SESSION" mouse on              # click to focus any pane (bug: approve dialogs)
+
   local brief="$(cd "$(dirname "$0")" && pwd)/ORCHESTRATOR.md"
   if [ -f "$brief" ]; then
     tmux send-keys -t "$SESSION:w0" "claude --append-system-prompt-file '$brief'" Enter
@@ -216,31 +225,55 @@ launch() {
   set -- $roles
   local n=$#
 
-  spawn() {  # role -> headless pane in the SHARED workspace
-    local role="$1" target="$2" model task wcmd
+  # spawn: start the worker's CLI IDLE (no task) and record its pane in PANES.md.
+  # The orchestrator dispatches real tasks into these panes via tmux send-keys.
+  spawn() {
+    local role="$1" target="$2" model launch_idle
     eval "model=\${RESOLVED_$role}"
-    task="Role '$role' in the shared workspace. Writers: do not edit files another writer is touching; the orchestrator sequences you. Readers: report to .agent-out/."
-    wcmd=$(worker_cmd "$role" "$model" "$ws" "$out" "$task")
-    tmux send-keys -t "$target" \
-      "$wcmd; echo \$? > '$out/$role.done'; echo '[$role exited; sentinel written]'" Enter
+    launch_idle=$(worker_idle "$role" "$model")
+    [ -n "$launch_idle" ] && tmux send-keys -t "$target" "$launch_idle" Enter
+    printf '%-7s pane=%s  model=%s\n' "$role" "$target" "$model" >> "$out/PANES.md"
   }
 
   if [ "$n" -le 2 ]; then
-    [ "$n" -ge 1 ] && { tmux split-window -h -t "$SESSION:w0" -c "$repo"; spawn "$1" "$SESSION:w0.1"; }
-    [ "$n" -eq 2 ] && { tmux split-window -v -t "$SESSION:w0" -c "$repo"; spawn "$2" "$SESSION:w0.2"; }
-    tmux select-layout -t "$SESSION:w0" main-vertical
+    # orch left, workers stacked right; force EXACT 50/50 horizontal split.
+    [ "$n" -ge 1 ] && { tmux split-window -h -p 50 -t "$SESSION:w0" -c "$ws"; spawn "$1" "$SESSION:w0.1"; }
+    [ "$n" -eq 2 ] && { tmux split-window -v -p 50 -t "$SESSION:w0.1" -c "$ws"; spawn "$2" "$SESSION:w0.2"; }
+    tmux select-pane -t "$SESSION:w0.0"          # focus orchestrator
   else
-    tmux split-window -h -t "$SESSION:w0" -c "$repo"; spawn "$1" "$SESSION:w0.1"; shift
+    tmux split-window -h -p 50 -t "$SESSION:w0" -c "$ws"; spawn "$1" "$SESSION:w0.1"; shift
     local win=1
     while [ "$#" -gt 0 ]; do
-      tmux new-window -t "$SESSION" -n "w$win" -c "$repo"; spawn "$1" "$SESSION:w$win.0"; shift
-      [ "$#" -gt 0 ] && { tmux split-window -h -t "$SESSION:w$win" -c "$repo"; spawn "$1" "$SESSION:w$win.1"; shift; }
+      tmux new-window -t "$SESSION" -n "w$win" -c "$ws"; spawn "$1" "$SESSION:w$win.0"; shift
+      [ "$#" -gt 0 ] && { tmux split-window -h -p 50 -t "$SESSION:w$win" -c "$ws"; spawn "$1" "$SESSION:w$win.1"; shift; }
       win=$((win+1))
     done
   fi
 
   printf "\n${GREEN}launched.${NC} attach:  ${BLUE}tmux attach -t %s${NC}\n" "$SESSION"
   printf "  ${GRAY}zoom a pane: Ctrl-b z   next window: Ctrl-b n   sentinels: %s/${NC}\n" ".agent-out"
+}
+
+# =====================================================================
+# `tools agents dispatch <role> "<task>"` — the ORCHESTRATOR uses this to run a
+# real headless task in a role's pane. Looks up the pane+model from PANES.md,
+# sends the headless command (which writes .agent-out/<role>.done on exit).
+# =====================================================================
+cmd_dispatch() {
+  local role="${1:-}"; shift || true
+  local task="$*"
+  [ -n "$role" ] && [ -n "$task" ] || die "dispatch <role> \"<task>\""
+  local repo; repo=$(git rev-parse --show-toplevel 2>/dev/null) || die "not in a git repo"
+  local out="$repo/.agent-out"
+  local line; line=$(awk -v r="$role" '$1==r{print; exit}' "$out/PANES.md" 2>/dev/null)
+  [ -n "$line" ] || die "role '$role' not found in PANES.md (is the swarm running?)"
+  local pane model; pane=$(echo "$line" | sed -E 's/.*pane=([^ ]+).*/\1/')
+  model=$(echo "$line" | sed -E 's/.*model=([^ ]+).*/\1/')
+  local cmd; cmd=$(worker_cmd "$role" "$model" "$task")
+  rm -f "$out/$role.done"
+  tmux send-keys -t "$pane" \
+    "$cmd; echo \$? > '$out/$role.done'; echo '[$role done; sentinel written]'" Enter
+  printf "${GREEN}dispatched${NC} %s -> %s  (wait on %s)\n" "$role" "$pane" ".agent-out/$role.done"
 }
 
 # =====================================================================
@@ -273,6 +306,7 @@ main() {
   case "${1:-}" in
     -h|--help|help) usage; exit 0 ;;
     set) shift; cmd_set "$@"; exit 0 ;;
+    dispatch) shift; cmd_dispatch "$@"; exit 0 ;;
     install) exec bash "$(cd "$(dirname "$0")" && pwd)/install.sh" ;;
   esac
   command -v tmux >/dev/null 2>&1 || die "tmux is required"
