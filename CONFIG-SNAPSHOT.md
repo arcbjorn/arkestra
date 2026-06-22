@@ -21,14 +21,14 @@ still callable.
 
 Each role's CLI and the model that CLI was configured with at snapshot time:
 
-| role   | CLI      | CLI's configured model (snapshot)     |
-|--------|----------|---------------------------------------|
-| arch   | codex    | `gpt-5.5`                             |
-| coding | opencode | `opencode-go/glm-5.2`                 |
-| impl   | pi       | `openai-codex/gpt-5.3-codex-spark`    |
-| logs   | gemini   | gemini CLI default                    |
-| git    | pi       | (same pi default as impl)             |
-| —      | claude   | orchestrator, fixed                   |
+| role   | CLI      | active model (snapshot) | source file read |
+|--------|----------|-------------------------|------------------|
+| arch   | codex    | `gpt-5.5`               | `~/.codex/config.toml` `model=` |
+| coding | opencode | `opencode-go/glm-5.2`   | `~/.local/state/opencode/model.json` `recent[0]` |
+| impl   | pi       | `openai-codex/gpt-5.5`  | `~/.pi/agent/settings.json` defaultProvider/Model |
+| logs   | gemini   | gemini CLI built-in     | (gemini settings.json has no model key) |
+| git    | pi       | `openai-codex/gpt-5.5`  | same pi settings.json |
+| —      | claude   | orchestrator, fixed     | — |
 
 Note: OpenCode's ACTIVE model is the most-recent entry in
 `~/.local/state/opencode/model.json` (`recent[0]`) — what the TUI launches with —
