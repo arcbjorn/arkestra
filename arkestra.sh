@@ -328,11 +328,21 @@ cmd_dispatch() {
   pane=$(echo "$line"    | sed -E 's/.*pane=([^ ]+).*/\1/')
   harness=$(echo "$line" | sed -E 's/.*harness=([^ ]+).*/\1/')
   model=$(echo "$line"   | sed -E 's/.*model=(.+)$/\1/')   # model is last; may contain spaces
-  local cmd; cmd=$(worker_cmd "$harness" "$model" "$task")
-  rm -f "$out/$role.done"
-  tmux send-keys -t "$pane" \
-    "$cmd; echo \$? > '$out/$role.done'; echo '[$role done; sentinel written]'" Enter
-  printf "${GREEN}dispatched${NC} %s -> %s  (wait on %s)\n" "$role" "$pane" ".agent-out/$role.done"
+  # ask the worker to end with a one-line summary so .done carries a real signal.
+  local ftask="$task
+
+When done, print a final line starting with SUMMARY: that states in <=15 words what you changed or found."
+  local cmd; cmd=$(worker_cmd "$harness" "$model" "$ftask")
+  rm -f "$out/$role.done" "$out/$role.out"
+  # capture full output to <role>.out; write structured <role>.done:
+  #   line1 = exit code   line2 = SUMMARY (the worker's summary line, or last line)
+  # Orchestrator reads .done (tiny); opens .out only when it needs detail.
+  local d="$out/$role.done" o="$out/$role.out"
+  # run capture logic in bash explicitly (pane shell may be zsh; PIPESTATUS is bash).
+  local cap="$cmd 2>&1 | tee $(shquote "$o"); ec=\${PIPESTATUS[0]}; { echo \$ec; (grep -m1 '^SUMMARY:' $(shquote "$o") || tail -n1 $(shquote "$o")) | sed 's/^SUMMARY: *//'; } > $(shquote "$d")"
+  tmux send-keys -t "$pane" "bash -c $(shquote "$cap"); echo '[$role done -> .done]'" Enter
+  printf "${GREEN}dispatched${NC} %s -> %s  ${GRAY}(read .agent-out/%s.done; full in %s.out)${NC}\n" \
+    "$role" "$pane" "$role" "$role"
 }
 
 # =====================================================================
