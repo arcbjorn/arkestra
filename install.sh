@@ -16,6 +16,27 @@ ok()   { printf "  ${GREEN}ok${NC}    %s\n" "$*"; }
 miss() { printf "  ${RED}miss${NC}  %s\n" "$*"; }
 note() { printf "  ${YELLOW}note${NC}  %s\n" "$*"; }
 
+CONF_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/arkestra"
+
+# ---- uninstall: remove arkestra's OWN files only (not the agent CLIs, not the
+# submodule). Kills any running session first. ----
+if [ "${1:-}" = "--uninstall" ]; then
+  printf "${BLUE}arkestra uninstall${NC} — removing arkestra's own files.\n"
+  if command -v tmux >/dev/null 2>&1 && tmux has-session -t arkestra 2>/dev/null; then
+    tmux kill-session -t arkestra && ok "killed running 'arkestra' session"
+  fi
+  if [ -d "$CONF_DIR" ]; then
+    printf "  remove config dir %s ? [y/N] " "$CONF_DIR"; read -r a || true
+    case "$a" in y|Y|yes) rm -rf "$CONF_DIR" && ok "removed $CONF_DIR" ;; *) note "kept $CONF_DIR" ;; esac
+  else
+    note "no config dir at $CONF_DIR"
+  fi
+  note "agent CLIs (claude/codex/opencode/pi/gemini) left untouched — uninstall those via their own tools."
+  note "the arkestra repo/submodule itself is left in place — remove it via git if you want."
+  printf "${GREEN}done.${NC}\n"
+  exit 0
+fi
+
 # ---- detect platform + package manager ----
 OS="$(uname -s)"
 PM=""; PM_INSTALL=""
@@ -84,7 +105,6 @@ case "$bv" in
 esac
 
 # ---- config dir ----
-CONF_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/arkestra"
 mkdir -p "$CONF_DIR"
 ok "config dir: $CONF_DIR"
 

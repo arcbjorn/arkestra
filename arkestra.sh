@@ -80,6 +80,13 @@ SET a persistent per-role default (picker lists the CLI's real models):
 Model resolution per role: --flag  >  agents.conf  >  the CLI's own default.
 Bare `tools agents` probes DEFAULT roles (coding arch git) and confirms.
 The orchestrator (Claude) is always launched as pane 0; you attach to watch.
+
+OTHER COMMANDS:
+  tools agents dispatch <role> "<task>"  (the orchestrator delegates a task)
+  tools agents stop [--keep-out]         stop the swarm: kill session, prune
+                                         worktrees, clear .agent-out
+  tools agents install                   check/install deps (macOS + Arch/Linux)
+  tools agents uninstall                 remove arkestra's own files (config dir)
 EOF
 }
 
@@ -277,6 +284,36 @@ cmd_dispatch() {
 }
 
 # =====================================================================
+# `tools agents stop` — tear down the running swarm: kill the tmux session,
+# prune any worktrees it created, and clear .agent-out scratch (with --keep-out
+# to leave sentinels/PANES.md for inspection).
+# =====================================================================
+cmd_stop() {
+  local keep_out=0
+  case "${1:-}" in --keep-out) keep_out=1 ;; esac
+  if tmux has-session -t "$SESSION" 2>/dev/null; then
+    tmux kill-session -t "$SESSION" && printf "${GREEN}stopped${NC} tmux session '%s'\n" "$SESSION"
+  else
+    printf "${GRAY}no running '%s' session.${NC}\n" "$SESSION"
+  fi
+  local repo; repo=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
+  if [ -n "$repo" ]; then
+    # remove only the fresh worktrees arkestra creates (.worktrees/agents-*)
+    if [ -d "$repo/.worktrees" ]; then
+      local wt
+      for wt in "$repo"/.worktrees/agents-*; do
+        [ -d "$wt" ] && git -C "$repo" worktree remove --force "$wt" 2>/dev/null
+      done
+      git -C "$repo" worktree prune 2>/dev/null
+      rmdir "$repo/.worktrees" 2>/dev/null || true
+    fi
+    if [ "$keep_out" -eq 0 ] && [ -d "$repo/.agent-out" ]; then
+      rm -rf "$repo/.agent-out" && printf "  ${GRAY}cleared .agent-out${NC}\n"
+    fi
+  fi
+}
+
+# =====================================================================
 # `tools agents set <role>` — pick a model from the role's CLI, save to conf.
 # =====================================================================
 cmd_set() {
@@ -307,7 +344,9 @@ main() {
     -h|--help|help) usage; exit 0 ;;
     set) shift; cmd_set "$@"; exit 0 ;;
     dispatch) shift; cmd_dispatch "$@"; exit 0 ;;
+    stop) shift; cmd_stop "$@"; exit 0 ;;
     install) exec bash "$(cd "$(dirname "$0")" && pwd)/install.sh" ;;
+    uninstall) exec bash "$(cd "$(dirname "$0")" && pwd)/install.sh" --uninstall ;;
   esac
   command -v tmux >/dev/null 2>&1 || die "tmux is required"
   command -v claude >/dev/null 2>&1 || die "claude (orchestrator) is required"
