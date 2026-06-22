@@ -110,18 +110,21 @@ EOF
 # ---- running arkestra teams (tmux sessions named arkestra-*) ----
 list_teams() { tmux list-sessions -F '#{session_name}' 2>/dev/null | grep "^${SESSION_PREFIX}-" ; }
 
+# auto_name -> lowest free arkestra-<N>
+auto_name() { local i=1; while tmux has-session -t "${SESSION_PREFIX}-$i" 2>/dev/null; do i=$((i+1)); done; echo "$i"; }
+
 # resolve_session [name] -> echoes a UNIQUE session name. Given a name, uses
-# arkestra-<name> (must be free). Otherwise auto-picks the lowest free number.
+# arkestra-<name> (must be free). Otherwise prompts (default = next free number).
 resolve_session() {
   local want="$1"
-  if [ -n "$want" ]; then
-    local n="${SESSION_PREFIX}-${want}"
-    tmux has-session -t "$n" 2>/dev/null && die "a team named '$n' is already running (stop it first, or pick another --name)"
-    echo "$n"; return
+  if [ -z "$want" ]; then
+    local def; def=$(auto_name)
+    want=$(ui_input "team name:" "$def")        # Enter keeps the auto number
+    [ -n "$want" ] || want="$def"
   fi
-  local i=1
-  while tmux has-session -t "${SESSION_PREFIX}-$i" 2>/dev/null; do i=$((i+1)); done
-  echo "${SESSION_PREFIX}-$i"
+  local n="${SESSION_PREFIX}-${want}"
+  tmux has-session -t "$n" 2>/dev/null && die "a team named '$n' is already running (stop it first, or pick another name)"
+  echo "$n"
 }
 
 usage() {
@@ -147,9 +150,10 @@ Model resolution per role: --flag  >  agents.conf  >  the CLI's own default.
 Bare `tools agents` probes DEFAULT roles (coding arch git) and confirms.
 The orchestrator (Claude) is always launched as pane 0; you attach to watch.
 
-Run MULTIPLE teams at once (each is its own tmux session):
+Run MULTIPLE teams at once (each is its own tmux session). You're prompted for a
+team name at launch (Enter keeps the auto number); or pass --name to skip it:
   tools agents --name api coding impl     # session arkestra-api
-  tools agents arch logs                   # auto-named arkestra-1, arkestra-2…
+  tools agents arch logs                   # prompts; default arkestra-1, -2…
 
 OTHER COMMANDS:
   tools agents dispatch <role> "<task>"  (the orchestrator delegates a task)
