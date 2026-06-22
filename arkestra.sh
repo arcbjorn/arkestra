@@ -167,7 +167,7 @@ worker_cmd() {
     coding) echo "opencode run -m '$model' '$task'";;
     impl)   echo "pi --model '$model' -p '$task'";;
     git)    echo "pi --model '$model' -p '$task'";;
-    logs)   echo "agy -p '$task'";;
+    logs)   echo "agy --model '$model' -p '$task'";;
   esac
 }
 
