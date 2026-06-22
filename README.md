@@ -12,6 +12,12 @@ work, and integrates. Invoked as `tools agents`.
 └─────────────────────────┴─ git     (pi)       ┘
 ```
 
+Screenshots:
+<img width="1728" height="998" alt="orch-arch" src="https://github.com/user-attachments/assets/d6b70a9c-c18b-4b22-9321-84c66fb09cc8" />
+<img width="1728" height="997" alt="coding-impl" src="https://github.com/user-attachments/assets/1fece8e8-b351-4a76-ac79-18c3b6f91fc6" />
+<img width="1725" height="997" alt="logs-git" src="https://github.com/user-attachments/assets/706fecc9-73c9-4e53-8c3e-9aa5ea544e0d" />
+
+
 ## Quick start
 
 ```bash
@@ -19,6 +25,8 @@ tools agents                     # default roles: coding arch git
 tools agents arch coding impl logs git   # all roles
 tools agents --name api coding impl      # a named team (run several at once)
 ```
+
+<img width="676" height="347" alt="arkestra-setup" src="https://github.com/user-attachments/assets/c0e91c24-b78f-41d8-bfeb-f3de0d06e15c" />
 
 Pick the workspace, confirm the pre-flight table, attach. Then tell the
 orchestrator what you want — it dispatches the right agents.
