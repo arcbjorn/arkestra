@@ -101,8 +101,15 @@ cli_for() { case "$1" in
 default_for() { case "$1" in
   arch)   grep -iE '^[[:space:]]*model[[:space:]]*=' "$HOME/.codex/config.toml" 2>/dev/null \
             | head -1 | sed -E 's/.*"([^"]+)".*/\1/' ;;
-  coding) grep -iE '"model"[[:space:]]*:' "$HOME/.config/opencode/opencode.jsonc" 2>/dev/null \
-            | head -1 | sed -E 's/.*"model"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/' ;;
+  coding) # opencode's ACTIVE model = recent[0] in its state file (what the TUI launches
+          # with), NOT opencode.jsonc's "model" (a stale profile). Fall back to jsonc.
+          local mj="${XDG_STATE_HOME:-$HOME/.local/state}/opencode/model.json"
+          if [ -f "$mj" ]; then
+            sed -E 's/.*"recent":\[\{"providerID":"([^"]+)","modelID":"([^"]+)".*/\1\/\2/' "$mj" 2>/dev/null | head -1
+          else
+            grep -iE '"model"[[:space:]]*:' "$HOME/.config/opencode/opencode.jsonc" 2>/dev/null \
+              | head -1 | sed -E 's/.*"model"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/'
+          fi ;;
   impl)   pi --list-models 2>/dev/null | sed -n '2p' | awk '{print $1"/"$2}' ;;
   logs)   echo "gemini" ;;                 # gemini CLI: provider fixed
   git)    pi --list-models 2>/dev/null | grep -i glm | head -1 | awk '{print $1"/"$2}' ;;
