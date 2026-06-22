@@ -21,7 +21,7 @@
 #   1 arch    codex     architecture / 2nd opinion
 #   2 coding  opencode  complex coding
 #   3 impl    pi        direct implementation
-#   4 logs    agy       deep log / investigation (antigravity; was gemini)
+#   4 logs    agy       deep log / investigation
 #   5 git     pi-git    git operations (small/fast)
 #
 # bash 3.2 safe: no associative arrays, no \s in sed, no `timeout`.
@@ -113,7 +113,7 @@ default_for() { case "$1" in
   impl|git) # pi's ACTUAL default = defaultProvider/defaultModel in its settings,
             # NOT the first row of `pi --list-models` (that's just sort order).
             pi_default ;;
-  logs)   agy_default ;;  # antigravity (agy) replaced the discontinued gemini CLI
+  logs)   agy_default ;;
 esac; }
 
 # agy's active model: it stores no user default, but logs the selected model

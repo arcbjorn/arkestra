@@ -78,7 +78,7 @@ check_cli claude   "https://docs.claude.com/claude-code  (orchestrator, REQUIRED
 check_cli codex    "npm i -g @openai/codex  (arch role)"
 check_cli opencode "https://opencode.ai  (coding role)"
 check_cli pi       "pi CLI  (impl/git roles)"
-check_cli agy      "curl -fsSL https://antigravity.google/cli/install.sh | bash  (logs role; replaced gemini)"
+check_cli agy      "curl -fsSL https://antigravity.google/cli/install.sh | bash  (logs role)"
 
 # ---- offer to install the system deps via the detected PM ----
 if [ -n "$SYS_MISSING" ]; then
