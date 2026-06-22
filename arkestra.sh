@@ -413,11 +413,23 @@ launch() {
   tmux new-session -d -s "$SESSION" -n w0 -c "$ws"   # pane 0 = orchestrator (Claude)
   style_session                                       # modern status bar + pane borders
 
+  # ROSTER: the orchestrator must dispatch ONLY to roles actually on this team.
+  # ORCHESTRATOR.md lists every possible role; this line scopes it to what launched.
+  local roster="THIS TEAM has exactly these roles — dispatch ONLY to them, never any other:"
+  local rr
+  for rr in $roles; do
+    local rm rh; eval "rm=\${RESOLVED_$rr}"; eval "rh=\${RESOLVED_H_$rr}"
+    roster="$roster
+  - $rr ($rh · $rm)"
+  done
+  roster="$roster
+If a task needs a role not listed above, tell the user it is not on this team (do NOT dispatch it)."
+
   local brief="$(cd "$(dirname "$0")" && pwd)/ORCHESTRATOR.md"
   if [ -f "$brief" ]; then
-    tmux send-keys -t "$SESSION:w0" "claude --append-system-prompt-file '$brief'" Enter
+    tmux send-keys -t "$SESSION:w0" "claude --append-system-prompt-file '$brief' --append-system-prompt $(shquote "$roster")" Enter
   else
-    tmux send-keys -t "$SESSION:w0" "claude" Enter
+    tmux send-keys -t "$SESSION:w0" "claude --append-system-prompt $(shquote "$roster")" Enter
   fi
 
   set -- $roles
