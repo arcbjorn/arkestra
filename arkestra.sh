@@ -443,7 +443,7 @@ launch() {
     [ "$n" -ge 1 ] && record "$1" "$(split_idle "$1" "$SESSION:w0" -h -p 50)"
     [ "$n" -eq 2 ] && record "$2" "$(split_idle "$2" "$SESSION:w0.1" -v -p 50)"
     tmux rename-window -t "$SESSION:w0" "orch·$1${2:+·$2}"
-    tmux select-pane -t "$SESSION:w0.0"          # focus orchestrator
+    tmux select-pane -t "$SESSION:0.0"           # focus orchestrator (by index; w0 renamed above)
   else
     record "$1" "$(split_idle "$1" "$SESSION:0" -h -p 50)"
     tmux rename-window -t "$SESSION:0" "orch·$1"; shift
