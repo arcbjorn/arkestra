@@ -21,7 +21,7 @@
 #   1 arch    codex     architecture / 2nd opinion
 #   2 coding  opencode  complex coding
 #   3 impl    pi        direct implementation
-#   4 logs    gemini    deep log / investigation
+#   4 logs    agy       deep log / investigation (antigravity; was gemini)
 #   5 git     pi-git    git operations (small/fast)
 #
 # bash 3.2 safe: no associative arrays, no \s in sed, no `timeout`.
@@ -70,7 +70,7 @@ ROLES (fixed priority, give any subset; unused are skipped):
   arch    codex     architecture / second opinion
   coding  opencode  complex coding
   impl    pi        direct implementation
-  logs    gemini    deep log / investigation
+  logs    agy       deep log / investigation
   git     git ops via pi (small/fast)
 
 OVERRIDE a role's model for this session (else the saved/CLI default):
@@ -95,7 +95,7 @@ EOF
 # ---- role -> CLI label / dispatch identity ----
 cli_for() { case "$1" in
   arch) echo codex;; coding) echo opencode;; impl) echo pi;;
-  logs) echo gemini;; git) echo pi-git;; esac; }
+  logs) echo agy;; git) echo pi-git;; esac; }
 
 # ---- per-role: configured default model ----
 default_for() { case "$1" in
@@ -113,8 +113,20 @@ default_for() { case "$1" in
   impl|git) # pi's ACTUAL default = defaultProvider/defaultModel in its settings,
             # NOT the first row of `pi --list-models` (that's just sort order).
             pi_default ;;
-  logs)   echo "gemini" ;;  # gemini CLI has no configured model; uses its own default
+  logs)   agy_default ;;  # antigravity (agy) replaced the discontinued gemini CLI
 esac; }
+
+# agy's active model: it stores no user default, but logs the selected model
+# label on each run. Read the newest cli log; fall back to "agy default".
+agy_default() {
+  local log; log=$(ls -t "$HOME/.gemini/antigravity-cli/log/"cli-*.log 2>/dev/null | head -1)
+  if [ -n "$log" ]; then
+    local m; m=$(grep -oE 'selected model override to backend: label="[^"]+"' "$log" 2>/dev/null \
+      | tail -1 | sed -E 's/.*label="([^"]+)".*/\1/')
+    [ -n "$m" ] && { echo "$m"; return; }
+  fi
+  echo "agy default"
+}
 
 # pi's configured default provider/model from ~/.pi/agent/settings.json
 pi_default() {
@@ -132,7 +144,7 @@ valid_for() { local r="$1" m="$2"; [ -n "$m" ] || return 1; case "$r" in
   arch)        codex --help >/dev/null 2>&1 ;;                       # trust config/-m
   coding)      opencode models 2>/dev/null | grep -qx "$m" ;;
   impl|git)    pi --list-models 2>/dev/null | grep -q "${m##*/}" ;;
-  logs)        command -v gemini >/dev/null 2>&1 ;;
+  logs)        command -v agy >/dev/null 2>&1 ;;
 esac; }
 
 # ---- per-role: the REAL model list from that CLI (one id per line) ----
@@ -141,7 +153,7 @@ list_models_for() { case "$1" in
   coding)    opencode models 2>/dev/null ;;
   impl|git)  pi --list-models 2>/dev/null | sed -n '2,$p' | awk '{print $1"/"$2}' ;;
   arch)      pi --list-models 2>/dev/null | awk '/openai-codex/{print $2}' ;;  # gpt-5.x ids
-  logs)      printf 'gemini\n' ;;
+  logs)      agy models 2>/dev/null ;;
 esac; }
 
 suggest_for() { list_models_for "$1" | head -6 | sed 's/^/      /'; }
@@ -155,7 +167,7 @@ worker_cmd() {
     coding) echo "opencode run -m '$model' '$task'";;
     impl)   echo "pi --model '$model' -p '$task'";;
     git)    echo "pi --model '$model' -p '$task'";;
-    logs)   echo "gemini -p '$task'";;
+    logs)   echo "agy -p '$task'";;
   esac
 }
 

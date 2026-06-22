@@ -4,7 +4,7 @@
 #
 # arkestra itself is a single POSIX-ish bash script; "install" means: confirm
 # the runtime deps are present and offer to install the ones a package manager
-# can provide. The agent CLIs (claude/codex/opencode/pi/gemini) are installed
+# can provide. The agent CLIs (claude/codex/opencode/pi/agy) are installed
 # out-of-band (npm/curl per their own docs) -- we only check + point you at them.
 #
 # bash 3.2 safe (macOS default bash). No associative arrays, no `\s`, no GNU-isms.
@@ -31,7 +31,7 @@ if [ "${1:-}" = "--uninstall" ]; then
   else
     note "no config dir at $CONF_DIR"
   fi
-  note "agent CLIs (claude/codex/opencode/pi/gemini) left untouched — uninstall those via their own tools."
+  note "agent CLIs (claude/codex/opencode/pi/agy) left untouched — uninstall those via their own tools."
   note "the arkestra repo/submodule itself is left in place — remove it via git if you want."
   printf "${GREEN}done.${NC}\n"
   exit 0
@@ -78,7 +78,7 @@ check_cli claude   "https://docs.claude.com/claude-code  (orchestrator, REQUIRED
 check_cli codex    "npm i -g @openai/codex  (arch role)"
 check_cli opencode "https://opencode.ai  (coding role)"
 check_cli pi       "pi CLI  (impl/git roles)"
-check_cli gemini   "npm i -g @google/gemini-cli  (logs role)"
+check_cli agy      "curl -fsSL https://antigravity.google/cli/install.sh | bash  (logs role; replaced gemini)"
 
 # ---- offer to install the system deps via the detected PM ----
 if [ -n "$SYS_MISSING" ]; then

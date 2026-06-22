@@ -35,7 +35,7 @@ tools agents set impl       # pick from pi's models
 | arch   | codex    | architecture / second opinion  |
 | coding | opencode | complex coding                 |
 | impl   | pi       | direct implementation          |
-| logs   | gemini   | deep log / investigation       |
+| logs   | agy      | deep log / investigation (antigravity; replaced gemini) |
 | git    | pi       | git operations (small/fast)    |
 
 ## Usage

@@ -26,7 +26,7 @@ Each role's CLI and the model that CLI was configured with at snapshot time:
 | arch   | codex    | `gpt-5.5`               | `~/.codex/config.toml` `model=` |
 | coding | opencode | `opencode-go/glm-5.2`   | `~/.local/state/opencode/model.json` `recent[0]` |
 | impl   | pi       | `openai-codex/gpt-5.5`  | `~/.pi/agent/settings.json` defaultProvider/Model |
-| logs   | gemini   | gemini CLI built-in     | (gemini settings.json has no model key) |
+| logs   | agy      | `Gemini 3.5 Flash (Medium)` | agy session log `selected model override to backend: label=...` (no stored default) |
 | git    | pi       | `openai-codex/gpt-5.5`  | same pi settings.json |
 | —      | claude   | orchestrator, fixed     | — |
 
