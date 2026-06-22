@@ -1,3 +1,5 @@
+<img width="200" height="175" alt="Arkestra Logo" src="https://github.com/user-attachments/assets/13219b00-0001-4886-86af-b9716f64c9f5" />
+
 # arkestra
 
 A team of CLI coding agents in tmux, orchestrated by Claude. You give the lead
