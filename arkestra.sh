@@ -108,7 +108,7 @@ EOF
 
 usage() {
   cat <<'EOF'
-tools agents - launch orchestrated CLI agent swarm in tmux
+tools agents - launch an orchestrated CLI agents team in tmux
 
   tools agents [roles...] [--<role> model] ...
 
@@ -131,7 +131,7 @@ The orchestrator (Claude) is always launched as pane 0; you attach to watch.
 
 OTHER COMMANDS:
   tools agents dispatch <role> "<task>"  (the orchestrator delegates a task)
-  tools agents stop [--keep-out]         stop the swarm: kill session, prune
+  tools agents stop [--keep-out]         stop the team: kill session, prune
                                          worktrees, clear .agent-out
   tools agents install                   check/install deps (macOS + Arch/Linux)
   tools agents uninstall                 remove arkestra's own files (config dir)
@@ -279,11 +279,11 @@ probe() {
   fi
   printf "\n" >&2
   if [ "$HAS_GUM" = 1 ]; then
-    gum confirm "Launch this swarm?" --affirmative="Launch" --negative="Cancel" \
+    gum confirm "Launch this team?" --affirmative="Launch" --negative="Cancel" \
       --selected.background="2" --selected.foreground="0" && return 0
     printf "  ${DIM}cancelled.${NC}\n" >&2; return 2
   fi
-  printf "  ${B}launch this swarm?${NC} ${DIM}[y/N]${NC} " >&2
+  printf "  ${B}launch this team?${NC} ${DIM}[y/N]${NC} " >&2
   local ans; read -r ans || true
   case "$ans" in y|Y|yes) return 0 ;; *) printf "  ${DIM}cancelled.${NC}\n" >&2; return 2 ;; esac
 }
@@ -307,7 +307,7 @@ pick_workspace() {
   done
   opts="$opts+ new worktree off $cur"
 
-  local pick; pick=$(ui_choose "where should the swarm work?" "$opts")
+  local pick; pick=$(ui_choose "where should the team work?" "$opts")
   [ -n "$pick" ] || { echo "$repo"; return; }                # default = current
   case "$pick" in
     *"(current)") echo "$repo" ;;
@@ -415,7 +415,7 @@ launch() {
     done
   fi
 
-  ui_title "swarm launched"
+  ui_title "team launched"
   printf "  ${GREEN}✓${NC} attach   ${B}tmux attach -t %s${NC}\n" "$SESSION" >&2
   printf "  ${GRAY}·${NC} switch   ${DIM}Option+Tab${NC}   ${GRAY}·${NC} zoom ${DIM}Ctrl-b z${NC}   ${GRAY}·${NC} stop ${DIM}tools agents stop${NC}\n" >&2
 }
@@ -432,7 +432,7 @@ cmd_dispatch() {
   local repo; repo=$(git rev-parse --show-toplevel 2>/dev/null) || die "not in a git repo"
   local out="$repo/.agent-out"
   local line; line=$(awk -v r="$role" '$1==r{print; exit}' "$out/PANES.md" 2>/dev/null)
-  [ -n "$line" ] || die "role '$role' not found in PANES.md (is the swarm running?)"
+  [ -n "$line" ] || die "role '$role' not found in PANES.md (is the team running?)"
   local pane harness model
   pane=$(echo "$line"    | sed -E 's/.*pane=([^ ]+).*/\1/')
   harness=$(echo "$line" | sed -E 's/.*harness=([^ ]+).*/\1/')
@@ -466,7 +466,7 @@ When done, print a final line starting with SUMMARY: that states in <=15 words w
 }
 
 # =====================================================================
-# `tools agents stop` — tear down the running swarm: kill the tmux session,
+# `tools agents stop` — tear down the running team: kill the tmux session,
 # prune any worktrees it created, and clear .agent-out scratch (with --keep-out
 # to leave sentinels/PANES.md for inspection).
 # =====================================================================
