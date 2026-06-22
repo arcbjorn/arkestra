@@ -138,10 +138,12 @@ worker_cmd() {
   esac
 }
 
-# ---- worker_idle: the pane just shows it's ready; orchestrator dispatches later.
-worker_idle() {
+# ---- banner_for: a compact, fancy idle banner for a worker pane (no echoed cmd).
+# Printed by spawn() via a cleared line so only the banner shows, not the command.
+banner_for() {
   local role="$1" model="$2"
-  echo "clear; printf '[$role pane ready - model $model]\\n[idle; orchestrator dispatches tasks here]\\n'"
+  printf '\033[38;5;8m┌─ \033[38;5;4m%s\033[38;5;8m ─ %s\n│  \033[38;5;3midle\033[38;5;8m · orchestrator dispatches here\n└─\033[0m\n' \
+    "$role" "$model"
 }
 
 # ---- order a want-list by PRIORITY, drop unused, no gaps ----
@@ -235,10 +237,12 @@ launch() {
   # spawn: start the worker's CLI IDLE (no task) and record its pane in PANES.md.
   # The orchestrator dispatches real tasks into these panes via tmux send-keys.
   spawn() {
-    local role="$1" target="$2" model launch_idle
+    local role="$1" target="$2" model
     eval "model=\${RESOLVED_$role}"
-    launch_idle=$(worker_idle "$role" "$model")
-    [ -n "$launch_idle" ] && tmux send-keys -t "$target" "$launch_idle" Enter
+    # write the idle banner to a per-role file, then have the pane cat+clear it.
+    # Sending a short `clear; cat FILE` avoids the long-printf line wrapping/echo.
+    banner_for "$role" "$model" > "$out/.banner-$role"
+    tmux send-keys -t "$target" "clear; cat '$out/.banner-$role'" Enter
     printf '%-7s pane=%s  model=%s\n' "$role" "$target" "$model" >> "$out/PANES.md"
   }
 
