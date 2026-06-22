@@ -42,10 +42,12 @@ agents, reviews their work, and integrates. Invoked as `tools agents`.
 tools agents                     # default roles: coding arch git
 tools agents arch coding impl logs git   # all roles
 tools agents --name api coding impl      # a named team (run several at once)
+tools agents coding git --start          # launch and jump straight in
 ```
 
-Pick the workspace, confirm the pre-flight table, attach. Then tell the
-orchestrator what you want — it dispatches the right agents.
+Pick the workspace, confirm the pre-flight table, attach (or pass `--start`
+to attach automatically). Then tell the orchestrator what you want — it
+dispatches the right agents.
 
 <img width="676" alt="workspace picker and pre-flight table" src="https://github.com/user-attachments/assets/c0e91c24-b78f-41d8-bfeb-f3de0d06e15c" />
 
@@ -98,11 +100,14 @@ The picker lists the CLI's real models; you can also type any callable id.
 - **≤2 workers**: one window — orchestrator left, workers stacked right.
 - **>2 workers**: orchestrator + first worker in window 0, the rest 2-per-window.
 - `Option+Tab` next window · `Ctrl-b z` zoom a pane · click to focus (mouse on).
+- Detached? `tools agents sessions` lists running teams and attaches to one
+  (switches client if you're already inside tmux).
 
 ## Commands
 
 ```bash
-tools agents [roles] [--<role> model] [--name <team>]   # launch
+tools agents [roles] [--<role> model] [--name <team>] [--start]   # launch
+tools agents sessions [name]             # list running teams and attach to one
 tools agents set <role>                  # set harness + model for a role
 tools agents dispatch <role> "<task>"    # (the orchestrator uses this)
 tools agents stop [--all] [--keep-out]   # stop a team (picks which if several)
