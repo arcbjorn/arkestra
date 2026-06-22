@@ -50,22 +50,33 @@ ui_err()   { printf "  ${RED}✗${NC} %s\n" "$1" >&2; }
 ui_kv()    { printf "  ${GRAY}%-9s${NC} %s\n" "$1" "$2" >&2; }
 
 # ui_choose <header> <newline-separated-options>  -> echoes the chosen line.
-# gum: arrow-key + fuzzy filter menu. fallback: numbered prompt.
+# gum choose: arrow-key menu (green cursor/match). long lists are scrollable.
+# fallback: numbered prompt. Either way you can also type a custom value.
 ui_choose() {
   local header="$1" opts="$2"
   if [ "$HAS_GUM" = 1 ]; then
-    printf '%s' "$opts" | gum filter --no-fuzzy=false \
-      --header="$header" --height=12 --indicator="❯" \
-      --prompt="  " --placeholder="type to filter…" 2>/dev/null
+    local chosen
+    chosen=$(printf '%s' "$opts" | gum choose --header="$header" --height=14 \
+      --cursor="❯ " --cursor.foreground=2 --header.foreground=8 2>/dev/tty)
+    printf '%s' "$chosen"
   else
     printf "${DIM}%s${NC}\n" "$header" >&2
-    local i=1; printf '%s' "$opts" | while IFS= read -r o; do
-      printf "  ${CYAN}%2d${NC} %s\n" "$i" "$o" >&2; i=$((i+1)); done
+    local i=1; printf '%s\n' "$opts" | while IFS= read -r o; do
+      [ -n "$o" ] && printf "  ${CYAN}%2d${NC} %s\n" "$i" "$o" >&2; i=$((i+1)); done
     printf "  ${GRAY}number, or type any value:${NC} " >&2
     local pick; read -r pick || true
     if printf '%s' "$pick" | grep -qE '^[0-9]+$'; then
       printf '%s' "$opts" | sed -n "${pick}p"
     else printf '%s' "$pick"; fi
+  fi
+}
+
+# ui_input <prompt>  -> free-text entry (gum input or read).
+ui_input() {
+  if [ "$HAS_GUM" = 1 ]; then
+    gum input --prompt="  $1 " --placeholder="model id…" 2>/dev/tty
+  else
+    printf "  %s " "$1" >&2; local v; read -r v || true; printf '%s' "$v"
   fi
 }
 
@@ -322,12 +333,16 @@ style_session() {
   tmux set -t "$s" status-style "bg=colour0,fg=colour8"
   # left: app label. window tabs show the window NAME (set per-window to the role),
   # active one highlighted. No pane-border bar, no running-command (those just said "zsh").
-  tmux set -t "$s" status-left  "#[bg=colour4,fg=colour0,bold] arkestra #[default] "
+  tmux set -t "$s" status-left  "#[bg=colour4,fg=colour0,bold] arkestra #[bg=colour0] "
   tmux set -t "$s" status-left-length 16
-  tmux setw -t "$s" window-status-format         " #W "
-  tmux setw -t "$s" window-status-current-format "#[bg=colour2,fg=colour0,bold] #W #[default]"
+  # tabs: active = solid green block, inactive = dim gray. NAME ONLY — no index,
+  # no #F flags (those are the - and * markers).
+  tmux setw -t "$s" window-status-format         "#[bg=colour0,fg=colour8] #W "
+  tmux setw -t "$s" window-status-current-format "#[bg=colour2,fg=colour0,bold] #W "
   tmux setw -t "$s" window-status-separator ""
-  tmux set -t "$s" status-right "#{?client_prefix,#[fg=colour3]PREFIX ,}#[fg=colour8]%H:%M "
+  tmux setw -t "$s" window-status-activity-style "none"
+  tmux setw -t "$s" window-status-bell-style "none"
+  tmux set -t "$s" status-right "#{?client_prefix,#[fg=colour0,bg=colour3,bold] PREFIX ,}#[bg=colour0,fg=colour8] %H:%M "
   tmux set -t "$s" status-right-length 20
   # focused pane shown by border color only (green) — no title bar.
   tmux set -t "$s" pane-border-status off
@@ -503,14 +518,16 @@ cmd_set() {
   harness="${harness%%  *}"                       # strip the "(default)" suffix
   [ -n "$harness" ] || harness="$def"             # empty pick = default
 
-  # 2) pick a model from that harness (gum filter; or type any callable id).
+  # 2) pick a model from that harness; a "type custom" option allows any
+  # callable id the CLI doesn't list.
   local models; models=$(list_models_for "$harness")
   local chosen
   if [ -n "$models" ]; then
-    chosen=$(ui_choose "model for $harness:" "$models")
+    chosen=$(ui_choose "model for $harness:" "$models
+✎ type a custom model id…")
+    case "$chosen" in "✎ type a custom"*) chosen=$(ui_input "custom model id:") ;; esac
   else
-    printf "  ${GRAY}%s lists no models — type any callable id:${NC} " "$harness" >&2
-    read -r chosen || true
+    chosen=$(ui_input "$harness lists no models — type any callable id:")
   fi
   [ -n "$chosen" ] || die "nothing picked"
 
