@@ -95,6 +95,18 @@ tools agents coding --coding opencode/gpt-5.5   # one-session override
 
 The picker lists the CLI's real models; you can also type any callable id.
 
+**Change a model mid-session** without losing orchestrator context. Workers are
+stateless between dispatches (each runs headless, then exits), so swapping a
+worker's model only needs to take effect on the *next* dispatch:
+
+```bash
+tools agents model coding opencode/claude-opus-4-8   # keep harness, new model
+tools agents model git pi pi/mimo-v2.5-free          # switch harness + model
+```
+
+The orchestrator (Claude, pane 0) is untouched — its conversation survives.
+`set` saves a default for future launches; `model` retargets the running team.
+
 ## Layout & navigation
 
 - **≤2 workers**: one window — orchestrator left, workers stacked right.
@@ -108,7 +120,8 @@ The picker lists the CLI's real models; you can also type any callable id.
 ```bash
 tools agents [roles] [--<role> model] [--name <team>] [--start]   # launch
 tools agents sessions [name]             # list running teams and attach to one
-tools agents set <role>                  # set harness + model for a role
+tools agents set <role>                  # set harness + model for a role (saved)
+tools agents model <role> [harness] <model>   # hot-swap a LIVE worker's model
 tools agents dispatch <role> "<task>"    # (the orchestrator uses this)
 tools agents stop [--all] [--keep-out]   # stop a team (picks which if several)
 tools agents install                     # check/install deps (macOS + Arch/Linux)
