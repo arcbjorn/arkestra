@@ -328,30 +328,29 @@ pick_workspace() {
 # =====================================================================
 style_session() {
   local s="$SESSION"
+  # session-scoped chrome
   tmux set -t "$s" mouse on
   tmux set -t "$s" status-position top
   tmux set -t "$s" status-justify left
   tmux set -t "$s" status-style "bg=colour0,fg=colour8"
-  # left: app label.  (#[default] resets bg/fg/attrs so nothing bleeds.)
   tmux set -t "$s" status-left  " #[fg=colour4,bold]arkestra#[default]   "
   tmux set -t "$s" status-left-length 20
-  # tabs: active = green name, inactive = dim. NAME ONLY (no #I index, no #F flags).
-  # each format ends with #[default] so bold/bg never bleeds into the next item.
-  tmux set -t "$s" window-status-format         "#[fg=colour8] #W #[default]"
-  tmux set -t "$s" window-status-current-format "#[fg=colour2,bold] #W #[default]"
-  tmux set -t "$s" window-status-separator " "
-  tmux set -t "$s" window-status-activity-style "none"
-  tmux set -t "$s" window-status-bell-style "none"
-  # right: just a dim clock. no conditionals (their commas clash with #[..] tags).
   tmux set -t "$s" status-right "#[fg=colour8]%H:%M "
   tmux set -t "$s" status-right-length 10
-  # focused pane shown by border color only (green) — no title bar.
   tmux set -t "$s" pane-border-status off
   tmux set -t "$s" pane-active-border-style "fg=colour2"
   tmux set -t "$s" pane-border-style "fg=colour8"
-  # keep our window names — tmux would otherwise rename them to "zsh" (the cmd).
   tmux set -t "$s" automatic-rename off
   tmux set -t "$s" allow-rename off
+  # WINDOW options are per-window — set GLOBALLY (-g) so EVERY window (incl. ones
+  # created later) uses our format. Session-scope only hits the active window, so
+  # new windows fell back to the global default (#I:#W#F = the index + - and *).
+  # Safe: the user has no ~/.tmux.conf window-status customization to clobber.
+  tmux setw -g window-status-format         "#[fg=colour8] #W #[default]"
+  tmux setw -g window-status-current-format "#[fg=colour2,bold] #W #[default]"
+  tmux setw -g window-status-separator " "
+  tmux setw -g window-status-activity-style "none"
+  tmux setw -g window-status-bell-style "none"
 }
 
 # =====================================================================
