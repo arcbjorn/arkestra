@@ -312,9 +312,12 @@ pick_workspace() {
   case "$pick" in
     *"(current)") echo "$repo" ;;
     "+ new worktree"*)
-        local wt="$repo/.worktrees/agents-$$"
-        git -C "$repo" worktree add -q "$wt" "$cur" >&2 || die "worktree add failed"
-        ui_ok "fresh worktree: ${wt##*/}"; echo "$wt" ;;
+        # a worktree needs its OWN branch — two worktrees can't share one (e.g.
+        # 'master' is already checked out here). Branch a fresh one off $cur.
+        local wt="$repo/.worktrees/agents-$$" br="agents/$$"
+        git -C "$repo" worktree add -q -b "$br" "$wt" "$cur" >&2 \
+          || die "worktree add failed"
+        ui_ok "fresh worktree ${wt##*/} on branch $br (off $cur)"; echo "$wt" ;;
     "○ "*)  local br="${pick#○ }"; br="${br%% *}"
         git -C "$repo" checkout -q "$br" >&2 || die "checkout '$br' failed"
         ui_ok "checked out $br"; echo "$repo" ;;
@@ -480,7 +483,8 @@ cmd_stop() {
   fi
   local repo; repo=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
   if [ -n "$repo" ]; then
-    # remove only the fresh worktrees arkestra creates (.worktrees/agents-*)
+    # remove the fresh worktrees arkestra creates (.worktrees/agents-*) and their
+    # throwaway agents/* branches.
     if [ -d "$repo/.worktrees" ]; then
       local wt
       for wt in "$repo"/.worktrees/agents-*; do
@@ -489,6 +493,10 @@ cmd_stop() {
       git -C "$repo" worktree prune 2>/dev/null
       rmdir "$repo/.worktrees" 2>/dev/null || true
     fi
+    local br
+    for br in $(git -C "$repo" for-each-ref --format='%(refname:short)' refs/heads/agents 2>/dev/null); do
+      git -C "$repo" branch -D "$br" 2>/dev/null
+    done
     if [ "$keep_out" -eq 0 ] && [ -d "$repo/.agent-out" ]; then
       rm -rf "$repo/.agent-out" && printf "  ${GRAY}cleared .agent-out${NC}\n"
     fi
