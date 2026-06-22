@@ -27,7 +27,8 @@
 # bash 3.2 safe: no associative arrays, no \s in sed, no `timeout`.
 set -eu
 
-SESSION="arkestra"
+SESSION="arkestra"   # resolved per-launch to a unique arkestra-<name> (see resolve_session)
+SESSION_PREFIX="arkestra"
 RED='\033[38;5;1m'; GREEN='\033[38;5;2m'; YELLOW='\033[38;5;3m'
 BLUE='\033[38;5;4m'; MAGENTA='\033[38;5;5m'; CYAN='\033[38;5;6m'
 WHITE='\033[38;5;7m'; GRAY='\033[38;5;8m'; B='\033[1m'; DIM='\033[2m'; NC='\033[0m'
@@ -106,6 +107,23 @@ EOF
   mv "$tmp" "$CONF"
 }
 
+# ---- running arkestra teams (tmux sessions named arkestra-*) ----
+list_teams() { tmux list-sessions -F '#{session_name}' 2>/dev/null | grep "^${SESSION_PREFIX}-" ; }
+
+# resolve_session [name] -> echoes a UNIQUE session name. Given a name, uses
+# arkestra-<name> (must be free). Otherwise auto-picks the lowest free number.
+resolve_session() {
+  local want="$1"
+  if [ -n "$want" ]; then
+    local n="${SESSION_PREFIX}-${want}"
+    tmux has-session -t "$n" 2>/dev/null && die "a team named '$n' is already running (stop it first, or pick another --name)"
+    echo "$n"; return
+  fi
+  local i=1
+  while tmux has-session -t "${SESSION_PREFIX}-$i" 2>/dev/null; do i=$((i+1)); done
+  echo "${SESSION_PREFIX}-$i"
+}
+
 usage() {
   cat <<'EOF'
 tools agents - launch an orchestrated CLI agents team in tmux
@@ -129,10 +147,14 @@ Model resolution per role: --flag  >  agents.conf  >  the CLI's own default.
 Bare `tools agents` probes DEFAULT roles (coding arch git) and confirms.
 The orchestrator (Claude) is always launched as pane 0; you attach to watch.
 
+Run MULTIPLE teams at once (each is its own tmux session):
+  tools agents --name api coding impl     # session arkestra-api
+  tools agents arch logs                   # auto-named arkestra-1, arkestra-2…
+
 OTHER COMMANDS:
   tools agents dispatch <role> "<task>"  (the orchestrator delegates a task)
-  tools agents stop [--keep-out]         stop the team: kill session, prune
-                                         worktrees, clear .agent-out
+  tools agents stop [--all] [--keep-out] stop a team (picks which if several;
+                                         --all stops every team). prunes worktrees.
   tools agents install                   check/install deps (macOS + Arch/Linux)
   tools agents uninstall                 remove arkestra's own files (config dir)
 EOF
@@ -367,7 +389,7 @@ launch() {
   local out="$ws/.agent-out"; mkdir -p "$out"
   : > "$out/PANES.md"   # role -> pane map the orchestrator reads to dispatch
 
-  tmux kill-session -t "$SESSION" 2>/dev/null || true
+  # SESSION is already a unique name (resolve_session); do NOT kill siblings.
   tmux new-session -d -s "$SESSION" -n w0 -c "$ws"   # pane 0 = orchestrator (Claude)
   style_session                                       # modern status bar + pane borders
 
@@ -477,13 +499,30 @@ When done, print a final line starting with SUMMARY: that states in <=15 words w
 # to leave sentinels/PANES.md for inspection).
 # =====================================================================
 cmd_stop() {
-  local keep_out=0
-  case "${1:-}" in --keep-out) keep_out=1 ;; esac
-  if tmux has-session -t "$SESSION" 2>/dev/null; then
-    tmux kill-session -t "$SESSION" && printf "${GREEN}stopped${NC} tmux session '%s'\n" "$SESSION"
+  local keep_out=0 all=0
+  while [ "$#" -gt 0 ]; do case "$1" in
+    --keep-out) keep_out=1 ;; --all) all=1 ;;
+  esac; shift; done
+
+  local teams; teams=$(list_teams)
+  if [ -z "$teams" ]; then printf "  ${GRAY}no running teams.${NC}\n" >&2; return 0; fi
+
+  local targets
+  if [ "$all" = 1 ]; then
+    targets="$teams"
+  elif [ "$(printf '%s\n' "$teams" | grep -c .)" = 1 ]; then
+    targets="$teams"                                   # only one running
   else
-    printf "${GRAY}no running '%s' session.${NC}\n" "$SESSION"
+    ui_title "stop team" "$(printf '%s' "$teams" | tr '\n' ' ')"
+    targets=$(ui_choose "which team to stop? (or --all)" "$teams")
+    [ -n "$targets" ] || { printf "  ${DIM}cancelled.${NC}\n" >&2; return 0; }
   fi
+
+  local t
+  for t in $targets; do
+    tmux kill-session -t "$t" 2>/dev/null && printf "  ${GREEN}✓${NC} stopped ${B}%s${NC}\n" "$t" >&2
+  done
+
   local repo; repo=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
   if [ -n "$repo" ]; then
     # remove the fresh worktrees arkestra creates (.worktrees/agents-*) and their
@@ -561,10 +600,11 @@ main() {
   git rev-parse --git-dir >/dev/null 2>&1 || die "run inside a git repository"
   local repo; repo=$(git rev-parse --show-toplevel)
 
-  # parse: positional roles + --<role> model overrides
-  local want=""
+  # parse: positional roles + --<role> model overrides + --name <team>
+  local want="" name=""
   while [ "$#" -gt 0 ]; do
     case "$1" in
+      --name) shift; [ "$#" -gt 0 ] || die "--name needs a value"; name="$1" ;;
       --arch|--coding|--impl|--logs|--git)
         local rr="${1#--}"; shift; [ "$#" -gt 0 ] || die "--$rr needs a model"
         eval "OVR_$rr=\"\$1\""; want="$want $rr" ;;
@@ -578,6 +618,7 @@ main() {
   local roles; roles=$(order_roles $want)
   [ -n "$roles" ] || die "no valid roles"
 
+  SESSION=$(resolve_session "$name")         # unique arkestra-<name|N>; no collision
   local ws; ws=$(pick_workspace "$repo") || exit $?
   probe "$roles" || exit $?
   launch "$roles" "$repo" "$ws"
