@@ -171,15 +171,17 @@ suggest_for() { list_models_for "$1" | head -6 | sed 's/^/      /'; }
 shquote() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
 
 # ---- per-HARNESS: the headless command that runs ONE task and exits ----
-# Used by `dispatch`. Writes the sentinel with exit code on completion.
+# Used by `dispatch`. Each runs NON-INTERACTIVE with auto-approved permissions so
+# a worker never hangs waiting for a prompt no one will answer (no human watches a
+# pane mid-dispatch). codex stays sandboxed to the workspace; the rest skip prompts.
 worker_cmd() {
   local harness="$1" model="$2" task="$3" m t
   m=$(shquote "$model"); t=$(shquote "$task")
   case "$harness" in
-    codex)    echo "codex exec -s workspace-write -m $m $t";;
-    opencode) echo "opencode run -m $m $t";;
-    pi)       echo "pi --model $m -p $t";;
-    agy)      echo "agy --model $m -p $t";;
+    codex)    echo "codex exec -s workspace-write -m $m $t";;   # already non-interactive in-workspace
+    opencode) echo "opencode run --dangerously-skip-permissions -m $m $t";;
+    pi)       echo "pi --approve --model $m -p $t";;
+    agy)      echo "agy --dangerously-skip-permissions --model $m -p $t";;
     *)        echo "$harness -p $t";;   # unknown: best-effort headless
   esac
 }
@@ -341,7 +343,7 @@ launch() {
   fi
 
   printf "\n${GREEN}launched.${NC} attach:  ${BLUE}tmux attach -t %s${NC}\n" "$SESSION"
-  printf "  ${GRAY}zoom a pane: Ctrl-b z   next window: Ctrl-b n   sentinels: %s/${NC}\n" ".agent-out"
+  printf "  ${GRAY}zoom: Ctrl-b z   switch window: Option+Tab   sentinels: %s/   stop: tools agents stop${NC}\n" ".agent-out"
 }
 
 # =====================================================================
@@ -374,8 +376,19 @@ When done, print a final line starting with SUMMARY: that states in <=15 words w
   # run capture logic in bash explicitly (pane shell may be zsh; PIPESTATUS is bash).
   local cap="$cmd 2>&1 | tee $(shquote "$o"); ec=\${PIPESTATUS[0]}; { echo \$ec; (grep -m1 '^SUMMARY:' $(shquote "$o") || tail -n1 $(shquote "$o")) | sed 's/^SUMMARY: *//'; } > $(shquote "$d")"
   tmux send-keys -t "$pane" "bash -c $(shquote "$cap"); echo '[$role done -> .done]'" Enter
-  printf "${GREEN}dispatched${NC} %s -> %s  ${GRAY}(read .agent-out/%s.done; full in %s.out)${NC}\n" \
-    "$role" "$pane" "$role" "$role"
+
+  # WATCHDOG: even with auto-approve flags, if a worker hangs (or a flag fails to
+  # suppress a prompt) the .done would never appear and the orchestrator would wait
+  # forever. Background watchdog: if .done is absent after DISPATCH_TIMEOUT, write a
+  # failure sentinel so the orchestrator sees it failed and can re-dispatch/escalate.
+  local to="${ARKESTRA_TIMEOUT:-600}"   # seconds; override via env
+  ( e=$(( $(date +%s) + to ))
+    while [ ! -f "$d" ] && [ "$(date +%s)" -lt "$e" ]; do sleep 3; done
+    [ -f "$d" ] || printf '124\nTIMEOUT: no .done after %ss (worker hung or blocked on a prompt)\n' "$to" > "$d"
+  ) >/dev/null 2>&1 &
+
+  printf "${GREEN}dispatched${NC} %s -> %s  ${GRAY}(read .agent-out/%s.done; full in %s.out; timeout %ss)${NC}\n" \
+    "$role" "$pane" "$role" "$role" "$to"
 }
 
 # =====================================================================
