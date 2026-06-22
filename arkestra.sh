@@ -151,6 +151,8 @@ Model resolution per role: --flag  >  agents.conf  >  the CLI's own default.
 Bare `tools agents` probes DEFAULT roles (coding arch git) and confirms.
 The orchestrator (Claude) is always launched as pane 0; you attach to watch.
 
+  --start    attach (or switch-client, if already in tmux) right after launch.
+
 Run MULTIPLE teams at once (each is its own tmux session). You're prompted for a
 team name at launch (Enter keeps the auto number); or pass --name to skip it:
   tools agents --name api coding impl     # session arkestra-api
@@ -617,10 +619,11 @@ main() {
   local repo; repo=$(git rev-parse --show-toplevel)
 
   # parse: positional roles + --<role> model overrides + --name <team>
-  local want="" name=""
+  local want="" name="" start=0
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --name) shift; [ "$#" -gt 0 ] || die "--name needs a value"; name="$1" ;;
+      --start) start=1 ;;
       --arch|--coding|--impl|--logs|--git)
         local rr="${1#--}"; shift; [ "$#" -gt 0 ] || die "--$rr needs a model"
         eval "OVR_$rr=\"\$1\""; want="$want $rr" ;;
@@ -638,6 +641,13 @@ main() {
   local ws; ws=$(pick_workspace "$repo") || exit $?
   probe "$roles" || exit $?
   launch "$roles" "$repo" "$ws"
+
+  # --start: jump straight into the team. Inside an existing tmux client we must
+  # switch-client (attach refuses to nest); from a plain shell, attach.
+  if [ "$start" -eq 1 ]; then
+    if [ -n "${TMUX:-}" ]; then exec tmux switch-client -t "$SESSION"
+    else exec tmux attach -t "$SESSION"; fi
+  fi
 }
 
 main "$@"
