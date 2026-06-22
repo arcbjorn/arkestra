@@ -109,7 +109,7 @@ EOF
 }
 
 # ---- running arkestra teams (tmux sessions named arkestra-*) ----
-list_teams() { tmux list-sessions -F '#{session_name}' 2>/dev/null | grep "^${SESSION_PREFIX}-" ; }
+list_teams() { tmux list-sessions -F '#{session_name}' 2>/dev/null | grep "^${SESSION_PREFIX}-" || true ; }
 
 # auto_name -> lowest free arkestra-<N>
 auto_name() { local i=1; while tmux has-session -t "${SESSION_PREFIX}-$i" 2>/dev/null; do i=$((i+1)); done; echo "$i"; }
@@ -159,6 +159,8 @@ team name at launch (Enter keeps the auto number); or pass --name to skip it:
   tools agents arch logs                   # prompts; default arkestra-1, -2…
 
 OTHER COMMANDS:
+  tools agents sessions [name]           list running teams and attach to one
+                                         (picks if several; switch-client in tmux).
   tools agents dispatch <role> "<task>"  (the orchestrator delegates a task)
   tools agents stop [--all] [--keep-out] stop a team (picks which if several;
                                          --all stops every team). prunes worktrees.
@@ -563,6 +565,37 @@ cmd_stop() {
   fi
 }
 
+# =====================================================================
+# `tools agents sessions` — list running teams and attach to a chosen one.
+# Inside an existing tmux client we switch-client (attach refuses to nest);
+# from a plain shell, attach. Pass a name to skip the picker.
+# =====================================================================
+cmd_sessions() {
+  local want="${1:-}"
+  local teams; teams=$(list_teams)
+  if [ -z "$teams" ]; then printf "  ${GRAY}no running teams.${NC}\n" >&2; return 0; fi
+
+  local target=""
+  if [ -n "$want" ]; then
+    case "$want" in ${SESSION_PREFIX}-*) target="$want" ;; *) target="${SESSION_PREFIX}-${want}" ;; esac
+    tmux has-session -t "$target" 2>/dev/null || die "no running team '$target'"
+  elif [ "$(printf '%s\n' "$teams" | grep -c .)" = 1 ]; then
+    target="$teams"                                    # only one running
+  else
+    ui_title "running teams"
+    local t
+    for t in $teams; do
+      local win; win=$(tmux list-windows -t "$t" -F '#{window_name}' 2>/dev/null | head -1)
+      ui_kv "$t" "$win"
+    done
+    target=$(ui_choose "attach to which team?" "$teams")
+    [ -n "$target" ] || { printf "  ${DIM}cancelled.${NC}\n" >&2; return 0; }
+  fi
+
+  if [ -n "${TMUX:-}" ]; then exec tmux switch-client -t "$target"
+  else exec tmux attach -t "$target"; fi
+}
+
 ALL_HARNESSES="codex opencode pi agy"   # claude excluded (it is the orchestrator)
 
 # =====================================================================
@@ -610,6 +643,7 @@ main() {
     set) shift; cmd_set "$@"; exit 0 ;;
     dispatch) shift; cmd_dispatch "$@"; exit 0 ;;
     stop) shift; cmd_stop "$@"; exit 0 ;;
+    sessions|ls|attach) shift; cmd_sessions "$@"; exit 0 ;;
     install) exec bash "$(cd "$(dirname "$0")" && pwd)/install.sh" ;;
     uninstall) exec bash "$(cd "$(dirname "$0")" && pwd)/install.sh" --uninstall ;;
   esac
