@@ -330,27 +330,28 @@ style_session() {
   local s="$SESSION"
   tmux set -t "$s" mouse on
   tmux set -t "$s" status-position top
+  tmux set -t "$s" status-justify left
   tmux set -t "$s" status-style "bg=colour0,fg=colour8"
-  # left: app label. window tabs show the window NAME (set per-window to the role),
-  # active one highlighted. No pane-border bar, no running-command (those just said "zsh").
-  tmux set -t "$s" status-left  "#[bg=colour4,fg=colour0,bold] arkestra #[bg=colour0] "
-  tmux set -t "$s" status-left-length 16
-  # tabs: active = solid green block, inactive = dim gray. NAME ONLY — no index,
-  # no #F flags (those are the - and * markers).
-  tmux setw -t "$s" window-status-format         "#[bg=colour0,fg=colour8] #W "
-  tmux setw -t "$s" window-status-current-format "#[bg=colour2,fg=colour0,bold] #W "
-  tmux setw -t "$s" window-status-separator ""
-  tmux setw -t "$s" window-status-activity-style "none"
-  tmux setw -t "$s" window-status-bell-style "none"
-  tmux set -t "$s" status-right "#{?client_prefix,#[fg=colour0,bg=colour3,bold] PREFIX ,}#[bg=colour0,fg=colour8] %H:%M "
-  tmux set -t "$s" status-right-length 20
+  # left: app label.  (#[default] resets bg/fg/attrs so nothing bleeds.)
+  tmux set -t "$s" status-left  " #[fg=colour4,bold]arkestra#[default]   "
+  tmux set -t "$s" status-left-length 20
+  # tabs: active = green name, inactive = dim. NAME ONLY (no #I index, no #F flags).
+  # each format ends with #[default] so bold/bg never bleeds into the next item.
+  tmux set -t "$s" window-status-format         "#[fg=colour8] #W #[default]"
+  tmux set -t "$s" window-status-current-format "#[fg=colour2,bold] #W #[default]"
+  tmux set -t "$s" window-status-separator " "
+  tmux set -t "$s" window-status-activity-style "none"
+  tmux set -t "$s" window-status-bell-style "none"
+  # right: just a dim clock. no conditionals (their commas clash with #[..] tags).
+  tmux set -t "$s" status-right "#[fg=colour8]%H:%M "
+  tmux set -t "$s" status-right-length 10
   # focused pane shown by border color only (green) — no title bar.
   tmux set -t "$s" pane-border-status off
   tmux set -t "$s" pane-active-border-style "fg=colour2"
   tmux set -t "$s" pane-border-style "fg=colour8"
   # keep our window names — tmux would otherwise rename them to "zsh" (the cmd).
-  tmux setw -t "$s" automatic-rename off
-  tmux setw -t "$s" allow-rename off
+  tmux set -t "$s" automatic-rename off
+  tmux set -t "$s" allow-rename off
 }
 
 # =====================================================================
