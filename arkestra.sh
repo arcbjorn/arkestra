@@ -267,22 +267,24 @@ pick_workspace() {
 style_session() {
   local s="$SESSION"
   tmux set -t "$s" mouse on
-  tmux set -t "$s" status-interval 2
   tmux set -t "$s" status-position top
-  tmux set -t "$s" status-style "bg=colour0,fg=colour7"
-  tmux set -t "$s" status-left  "#[bg=colour4,fg=colour0,bold] arkestra #[bg=colour0,fg=colour4]#[default] "
-  tmux set -t "$s" status-left-length 20
-  # each window: active = highlighted block, inactive = dim
-  tmux setw -t "$s" window-status-format         " #I #W "
-  tmux setw -t "$s" window-status-current-format "#[bg=colour2,fg=colour0,bold] #I #W #[default]"
+  tmux set -t "$s" status-style "bg=colour0,fg=colour8"
+  # left: app label. window tabs show the window NAME (set per-window to the role),
+  # active one highlighted. No pane-border bar, no running-command (those just said "zsh").
+  tmux set -t "$s" status-left  "#[bg=colour4,fg=colour0,bold] arkestra #[default] "
+  tmux set -t "$s" status-left-length 16
+  tmux setw -t "$s" window-status-format         " #W "
+  tmux setw -t "$s" window-status-current-format "#[bg=colour2,fg=colour0,bold] #W #[default]"
   tmux setw -t "$s" window-status-separator ""
-  tmux set -t "$s" status-right "#[fg=colour8]#{?client_prefix,#[fg=colour3]PREFIX ,}#[fg=colour6]#{pane_current_command}#[fg=colour8] · #[fg=colour5]%H:%M "
-  tmux set -t "$s" status-right-length 60
-  # pane borders: bright on the focused pane, dim elsewhere; show role title
-  tmux set -t "$s" pane-border-status top
-  tmux set -t "$s" pane-border-format " #{?pane_active,#[fg=colour2 bold],#[fg=colour8]}#{pane_index}:#{pane_current_command} "
+  tmux set -t "$s" status-right "#{?client_prefix,#[fg=colour3]PREFIX ,}#[fg=colour8]%H:%M "
+  tmux set -t "$s" status-right-length 20
+  # focused pane shown by border color only (green) — no title bar.
+  tmux set -t "$s" pane-border-status off
   tmux set -t "$s" pane-active-border-style "fg=colour2"
   tmux set -t "$s" pane-border-style "fg=colour8"
+  # keep our window names — tmux would otherwise rename them to "zsh" (the cmd).
+  tmux setw -t "$s" automatic-rename off
+  tmux setw -t "$s" allow-rename off
 }
 
 # =====================================================================
@@ -330,14 +332,19 @@ launch() {
   if [ "$n" -le 2 ]; then
     [ "$n" -ge 1 ] && record "$1" "$(split_idle "$1" "$SESSION:w0" -h -p 50)"
     [ "$n" -eq 2 ] && record "$2" "$(split_idle "$2" "$SESSION:w0.1" -v -p 50)"
+    tmux rename-window -t "$SESSION:w0" "orch·$1${2:+·$2}"
     tmux select-pane -t "$SESSION:w0.0"          # focus orchestrator
   else
-    record "$1" "$(split_idle "$1" "$SESSION:w0" -h -p 50)"; shift
+    record "$1" "$(split_idle "$1" "$SESSION:0" -h -p 50)"
+    tmux rename-window -t "$SESSION:0" "orch·$1"; shift
     local win=1
     while [ "$#" -gt 0 ]; do
-      local pid; pid=$(tmux new-window -P -F '#{pane_id}' -t "$SESSION" -n "w$win" -c "$ws" "$(idle_cmd "$1")")
-      record "$1" "$pid"; shift
-      [ "$#" -gt 0 ] && { record "$1" "$(split_idle "$1" "$SESSION:w$win" -h -p 50)"; shift; }
+      local r1="$1" r2=""
+      local wid; wid=$(tmux new-window -P -F '#{window_id}' -t "$SESSION" -c "$ws" "$(idle_cmd "$1")")
+      record "$1" "$(tmux display -p -t "$wid" '#{pane_id}')"
+      shift
+      [ "$#" -gt 0 ] && { r2="$1"; record "$1" "$(split_idle "$1" "$wid" -h -p 50)"; shift; }
+      tmux rename-window -t "$wid" "$r1${r2:+·$r2}"
       win=$((win+1))
     done
   fi
