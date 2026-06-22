@@ -161,6 +161,9 @@ team name at launch (Enter keeps the auto number); or pass --name to skip it:
 OTHER COMMANDS:
   tools agents sessions [name]           list running teams and attach to one
                                          (picks if several; switch-client in tmux).
+  tools agents model <role> [<harness>] <model>
+                                         swap a LIVE worker's model (next dispatch
+                                         uses it; orchestrator keeps its context).
   tools agents dispatch <role> "<task>"  (the orchestrator delegates a task)
   tools agents stop [--all] [--keep-out] stop a team (picks which if several;
                                          --all stops every team). prunes worktrees.
@@ -527,6 +530,43 @@ When done, print a final line starting with SUMMARY: that states in <=15 words w
 }
 
 # =====================================================================
+# `tools agents model <role> [<harness>] <model>` — change a LIVE team's worker
+# model without restarting. Workers are stateless per-dispatch (dispatch reads
+# harness/model from PANES.md each time), so rewriting PANES.md is enough — the
+# orchestrator (pane 0) keeps all its context. Refreshes the worker's banner too.
+# =====================================================================
+cmd_model() {
+  local role="${1:-}" a2="${2:-}" a3="${3:-}"
+  [ -n "$role" ] && [ -n "$a2" ] || die "model <role> [<harness>] <model>  (e.g. model coding opencode/claude-opus-4-8)"
+  local repo; repo=$(git rev-parse --show-toplevel 2>/dev/null) || die "not in a git repo"
+  local panes="$repo/.agent-out/PANES.md"
+  local line; line=$(awk -v r="$role" '$1==r{print; exit}' "$panes" 2>/dev/null)
+  [ -n "$line" ] || die "role '$role' not on the running team (no $role line in PANES.md)"
+
+  # arg shapes: `model coding opencode/gpt-5.5`  OR  `model coding opencode gpt-5.5`.
+  local harness model pane
+  pane=$(printf '%s' "$line" | sed -E 's/.*pane=([^ ]+).*/\1/')
+  if [ -n "$a3" ]; then harness="$a2"; model="$a3"
+  else harness=$(printf '%s' "$line" | sed -E 's/.*harness=([^ ]+).*/\1/'); model="$a2"; fi
+
+  valid_for "$harness" "$model" || printf "  ${YELLOW}!${NC} ${DIM}%s may not list '%s' — dispatching anyway${NC}\n" "$harness" "$model" >&2
+
+  # rewrite ONLY this role's line, preserving column layout dispatch parses.
+  local tmp; tmp=$(mktemp)
+  awk -v r="$role" -v p="$pane" -v h="$harness" -v m="$model" \
+    '$1==r{printf "%-7s pane=%s  harness=%s  model=%s\n",$1,p,h,m;next}1' \
+    "$panes" > "$tmp" && mv "$tmp" "$panes"
+
+  # refresh the idle banner so the pane shows the new model (cosmetic but honest).
+  local out="$repo/.agent-out"
+  banner_for "$role" "$harness" "$model" > "$out/.banner-$role"
+  tmux send-keys -t "$pane" "clear; cat $(shquote "$out/.banner-$role")" Enter 2>/dev/null || true
+
+  printf "  ${GREEN}✓${NC} ${B}%s${NC} ${GRAY}→${NC} ${CYAN}%s${NC} ${GRAY}·${NC} %s  ${DIM}(next dispatch uses it; orchestrator context kept)${NC}\n" \
+    "$role" "$harness" "$model" >&2
+}
+
+# =====================================================================
 # `tools agents stop` — tear down the running team: kill the tmux session,
 # prune any worktrees it created, and clear .agent-out scratch (with --keep-out
 # to leave sentinels/PANES.md for inspection).
@@ -655,6 +695,7 @@ main() {
     -h|--help|help) usage; exit 0 ;;
     set) shift; cmd_set "$@"; exit 0 ;;
     dispatch) shift; cmd_dispatch "$@"; exit 0 ;;
+    model) shift; cmd_model "$@"; exit 0 ;;
     stop) shift; cmd_stop "$@"; exit 0 ;;
     sessions|ls|attach) shift; cmd_sessions "$@"; exit 0 ;;
     install) exec bash "$(cd "$(dirname "$0")" && pwd)/install.sh" ;;
