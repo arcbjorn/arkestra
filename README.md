@@ -1,10 +1,15 @@
+<div align="center">
+
 <img width="200" height="175" alt="Arkestra Logo" src="https://github.com/user-attachments/assets/13219b00-0001-4886-86af-b9716f64c9f5" />
 
 # arkestra
 
-A team of CLI coding agents in tmux, orchestrated by Claude. You give the lead
-one goal; it delegates scoped tasks to cheaper specialist agents, reviews their
-work, and integrates. Invoked as `tools agents`.
+**A team of CLI coding agents in tmux, orchestrated by Claude.**
+
+</div>
+
+You give the lead one goal; it delegates scoped tasks to cheaper specialist
+agents, reviews their work, and integrates. Invoked as `tools agents`.
 
 ```
 ┌─ orchestrator (Claude) ─┬─ arch    (codex)    ┐
@@ -14,10 +19,21 @@ work, and integrates. Invoked as `tools agents`.
 └─────────────────────────┴─ git     (pi)       ┘
 ```
 
-Screenshots:
-<img width="1728" height="998" alt="orch-arch" src="https://github.com/user-attachments/assets/d6b70a9c-c18b-4b22-9321-84c66fb09cc8" />
-<img width="1728" height="997" alt="coding-impl" src="https://github.com/user-attachments/assets/1fece8e8-b351-4a76-ac79-18c3b6f91fc6" />
-<img width="1725" height="997" alt="logs-git" src="https://github.com/user-attachments/assets/706fecc9-73c9-4e53-8c3e-9aa5ea544e0d" />
+<details>
+<summary><b>Screenshots</b> — a 5-agent team across three windows</summary>
+
+<br>
+
+**Window 1** — orchestrator + arch
+<img width="1728" alt="orchestrator and arch" src="https://github.com/user-attachments/assets/d6b70a9c-c18b-4b22-9321-84c66fb09cc8" />
+
+**Window 2** — coding + impl
+<img width="1728" alt="coding and impl" src="https://github.com/user-attachments/assets/1fece8e8-b351-4a76-ac79-18c3b6f91fc6" />
+
+**Window 3** — logs + git
+<img width="1725" alt="logs and git" src="https://github.com/user-attachments/assets/706fecc9-73c9-4e53-8c3e-9aa5ea544e0d" />
+
+</details>
 
 
 ## Quick start
@@ -28,10 +44,10 @@ tools agents arch coding impl logs git   # all roles
 tools agents --name api coding impl      # a named team (run several at once)
 ```
 
-<img width="676" height="347" alt="arkestra-setup" src="https://github.com/user-attachments/assets/c0e91c24-b78f-41d8-bfeb-f3de0d06e15c" />
-
 Pick the workspace, confirm the pre-flight table, attach. Then tell the
 orchestrator what you want — it dispatches the right agents.
+
+<img width="676" alt="workspace picker and pre-flight table" src="https://github.com/user-attachments/assets/c0e91c24-b78f-41d8-bfeb-f3de0d06e15c" />
 
 ## How it works
 
