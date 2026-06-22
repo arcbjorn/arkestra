@@ -414,23 +414,24 @@ launch() {
   style_session                                       # modern status bar + pane borders
 
   # ROSTER: the orchestrator must dispatch ONLY to roles actually on this team.
-  # ORCHESTRATOR.md lists every possible role; this line scopes it to what launched.
-  local roster="THIS TEAM has exactly these roles — dispatch ONLY to them, never any other:"
-  local rr
-  for rr in $roles; do
-    local rm rh; eval "rm=\${RESOLVED_$rr}"; eval "rh=\${RESOLVED_H_$rr}"
-    roster="$roster
-  - $rr ($rh · $rm)"
-  done
-  roster="$roster
-If a task needs a role not listed above, tell the user it is not on this team (do NOT dispatch it)."
+  # ORCHESTRATOR.md lists every possible role; the roster scopes it to what launched.
+  # We compose the static brief + roster into ONE per-team file and pass it as a
+  # single --append-system-prompt-file. (claude rejects mixing the file and inline
+  # flags; a file also avoids multiline shell-quoting in send-keys.)
+  local src="$(cd "$(dirname "$0")" && pwd)/ORCHESTRATOR.md"
+  local brief="$out/ORCHESTRATOR.md"
+  [ -f "$src" ] && cat "$src" > "$brief" || : > "$brief"
+  {
+    printf '\nTHIS TEAM has exactly these roles — dispatch ONLY to them, never any other:\n'
+    local rr rm rh
+    for rr in $roles; do
+      eval "rm=\${RESOLVED_$rr}"; eval "rh=\${RESOLVED_H_$rr}"
+      printf '  - %s (%s · %s)\n' "$rr" "$rh" "$rm"
+    done
+    printf 'If a task needs a role not listed above, tell the user it is not on this team (do NOT dispatch it).\n'
+  } >> "$brief"
 
-  local brief="$(cd "$(dirname "$0")" && pwd)/ORCHESTRATOR.md"
-  if [ -f "$brief" ]; then
-    tmux send-keys -t "$SESSION:w0" "claude --append-system-prompt-file '$brief' --append-system-prompt $(shquote "$roster")" Enter
-  else
-    tmux send-keys -t "$SESSION:w0" "claude --append-system-prompt $(shquote "$roster")" Enter
-  fi
+  tmux send-keys -t "$SESSION:w0" "claude --append-system-prompt-file $(shquote "$brief")" Enter
 
   set -- $roles
   local n=$#
