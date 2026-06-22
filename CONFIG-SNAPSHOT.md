@@ -24,15 +24,15 @@ Each role's CLI and the model that CLI was configured with at snapshot time:
 | role   | CLI      | CLI's configured model (snapshot)     |
 |--------|----------|---------------------------------------|
 | arch   | codex    | `gpt-5.5`                             |
-| coding | opencode | `ollama/qwen3:4b-instruct`            |
+| coding | opencode | `opencode-go/glm-5.2`                 |
 | impl   | pi       | `openai-codex/gpt-5.3-codex-spark`    |
 | logs   | gemini   | gemini CLI default                    |
 | git    | pi       | (same pi default as impl)             |
 | —      | claude   | orchestrator, fixed                   |
 
-Note: OpenCode's *active* top-level `model` was `ollama/qwen3:4b-instruct` at
-snapshot — other models (glm, etc.) existed under its `models` profiles block but
-were not the active default. To make a role use one of those, either change the
-CLI's own config or set it in arkestra via `tools agents set <role>`.
+Note: OpenCode's ACTIVE model is the most-recent entry in
+`~/.local/state/opencode/model.json` (`recent[0]`) — what the TUI launches with —
+NOT the `"model"` field in `opencode.jsonc` (that is a stale profile). arkestra
+reads model.json for the coding role.
 
 Regenerate this table by reading each CLI's config / `models` output on the day.
