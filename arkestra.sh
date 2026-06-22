@@ -110,10 +110,22 @@ default_for() { case "$1" in
             grep -iE '"model"[[:space:]]*:' "$HOME/.config/opencode/opencode.jsonc" 2>/dev/null \
               | head -1 | sed -E 's/.*"model"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/'
           fi ;;
-  impl)   pi --list-models 2>/dev/null | sed -n '2p' | awk '{print $1"/"$2}' ;;
-  logs)   echo "gemini" ;;                 # gemini CLI: provider fixed
-  git)    pi --list-models 2>/dev/null | grep -i glm | head -1 | awk '{print $1"/"$2}' ;;
+  impl|git) # pi's ACTUAL default = defaultProvider/defaultModel in its settings,
+            # NOT the first row of `pi --list-models` (that's just sort order).
+            pi_default ;;
+  logs)   echo "gemini" ;;  # gemini CLI has no configured model; uses its own default
 esac; }
+
+# pi's configured default provider/model from ~/.pi/agent/settings.json
+pi_default() {
+  local s="$HOME/.pi/agent/settings.json"
+  [ -f "$s" ] || { pi --list-models 2>/dev/null | sed -n '2p' | awk '{print $1"/"$2}'; return; }
+  local prov mdl
+  prov=$(sed -E -n 's/.*"defaultProvider"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' "$s" | head -1)
+  mdl=$(sed -E -n 's/.*"defaultModel"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' "$s" | head -1)
+  [ -n "$mdl" ] || { pi --list-models 2>/dev/null | sed -n '2p' | awk '{print $1"/"$2}'; return; }
+  if [ -n "$prov" ]; then echo "$prov/$mdl"; else echo "$mdl"; fi
+}
 
 # ---- per-role: is model valid for that CLI? ----
 valid_for() { local r="$1" m="$2"; [ -n "$m" ] || return 1; case "$r" in
