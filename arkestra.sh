@@ -72,12 +72,13 @@ ui_choose() {
   fi
 }
 
-# ui_input <prompt>  -> free-text entry (gum input or read).
+# ui_input <prompt> [default]  -> free-text entry (gum input or read).
+# the prompt text doubles as the placeholder; [default] pre-fills (Enter keeps it).
 ui_input() {
   if [ "$HAS_GUM" = 1 ]; then
-    gum input --prompt="  $1 " --placeholder="model id…" 2>/dev/tty
+    gum input --prompt="  $1 " --value="${2:-}" --placeholder="${1%:}…" 2>/dev/tty
   else
-    printf "  %s " "$1" >&2; local v; read -r v || true; printf '%s' "$v"
+    printf "  %s [%s] " "$1" "${2:-}" >&2; local v; read -r v || true; printf '%s' "${v:-${2:-}}"
   fi
 }
 
