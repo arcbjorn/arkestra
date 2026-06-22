@@ -187,9 +187,9 @@ worker_cmd() {
 # ---- banner_for: a compact, fancy idle banner for a worker pane (no echoed cmd).
 # Printed by spawn() via a cleared line so only the banner shows, not the command.
 banner_for() {
-  local role="$1" model="$2"
-  printf '\033[38;5;8m┌─ \033[38;5;4m%s\033[38;5;8m ─ %s\n│  \033[38;5;3midle\033[38;5;8m · orchestrator dispatches here\n└─\033[0m\n' \
-    "$role" "$model"
+  local role="$1" harness="$2" model="$3"
+  printf '\033[38;5;8m┌─ \033[38;5;4m%s\033[38;5;8m · \033[38;5;6m%s\033[38;5;8m · %s\n│  \033[38;5;3midle\033[38;5;8m · orchestrator dispatches here\n└─\033[0m\n' \
+    "$role" "$harness" "$model"
 }
 
 # ---- order a want-list by PRIORITY, drop unused, no gaps ----
@@ -259,6 +259,31 @@ pick_workspace() {
 }
 
 # =====================================================================
+# style_session — modern status bar + pane borders for the arkestra session.
+# Uses omarchy terminal palette slots (colour1..8) so it tracks the theme.
+# =====================================================================
+style_session() {
+  local s="$SESSION"
+  tmux set -t "$s" mouse on
+  tmux set -t "$s" status-interval 2
+  tmux set -t "$s" status-position top
+  tmux set -t "$s" status-style "bg=colour0,fg=colour7"
+  tmux set -t "$s" status-left  "#[bg=colour4,fg=colour0,bold] arkestra #[bg=colour0,fg=colour4]#[default] "
+  tmux set -t "$s" status-left-length 20
+  # each window: active = highlighted block, inactive = dim
+  tmux setw -t "$s" window-status-format         " #I #W "
+  tmux setw -t "$s" window-status-current-format "#[bg=colour2,fg=colour0,bold] #I #W #[default]"
+  tmux setw -t "$s" window-status-separator ""
+  tmux set -t "$s" status-right "#[fg=colour8]#{?client_prefix,#[fg=colour3]PREFIX ,}#[fg=colour6]#{pane_current_command}#[fg=colour8] · #[fg=colour5]%H:%M "
+  tmux set -t "$s" status-right-length 60
+  # pane borders: bright on the focused pane, dim elsewhere; show role title
+  tmux set -t "$s" pane-border-status top
+  tmux set -t "$s" pane-border-format " #{?pane_active,#[fg=colour2 bold],#[fg=colour8]}#{pane_index}:#{pane_current_command} "
+  tmux set -t "$s" pane-active-border-style "fg=colour2"
+  tmux set -t "$s" pane-border-style "fg=colour8"
+}
+
+# =====================================================================
 # LAUNCH: build tmux structure; all workers run in the SHARED workspace.
 # =====================================================================
 launch() {
@@ -268,7 +293,7 @@ launch() {
 
   tmux kill-session -t "$SESSION" 2>/dev/null || true
   tmux new-session -d -s "$SESSION" -n w0 -c "$ws"   # pane 0 = orchestrator (Claude)
-  tmux set -t "$SESSION" mouse on              # click to focus any pane (bug: approve dialogs)
+  style_session                                       # modern status bar + pane borders
 
   local brief="$(cd "$(dirname "$0")" && pwd)/ORCHESTRATOR.md"
   if [ -f "$brief" ]; then
@@ -280,29 +305,37 @@ launch() {
   set -- $roles
   local n=$#
 
-  # spawn: start the worker's CLI IDLE (no task) and record its pane in PANES.md.
-  # The orchestrator dispatches real tasks into these panes via tmux send-keys.
-  spawn() {
-    local role="$1" target="$2" model harness
+  # idle_cmd: the shell command a worker pane LAUNCHES with — print the banner,
+  # then exec an interactive shell. The banner is program OUTPUT, never a typed
+  # command, so it can't echo or wrap (the old `send-keys cat` bug).
+  idle_cmd() {
+    local role="$1" model harness
     eval "model=\${RESOLVED_$role}"; eval "harness=\${RESOLVED_H_$role}"
-    # write the idle banner to a per-role file, then have the pane cat+clear it.
-    # Sending a short `clear; cat FILE` avoids the long-printf line wrapping/echo.
-    banner_for "$role" "$harness/$model" > "$out/.banner-$role"
-    tmux send-keys -t "$target" "clear; cat '$out/.banner-$role'" Enter
-    printf '%-7s pane=%s  harness=%s  model=%s\n' "$role" "$target" "$harness" "$model" >> "$out/PANES.md"
+    banner_for "$role" "$harness" "$model" > "$out/.banner-$role"
+    echo "clear; cat $(shquote "$out/.banner-$role"); exec ${SHELL:-/bin/zsh}"
+  }
+  record() {  # role  pane_id
+    local role="$1" pid="$2" model harness
+    eval "model=\${RESOLVED_$role}"; eval "harness=\${RESOLVED_H_$role}"
+    printf '%-7s pane=%s  harness=%s  model=%s\n' "$role" "$pid" "$harness" "$model" >> "$out/PANES.md"
+  }
+  # split a pane and run the worker's idle command; echo the NEW pane's id.
+  split_idle() {  # role  target  flags...
+    local role="$1" tgt="$2"; shift 2
+    tmux split-window -P -F '#{pane_id}' "$@" -t "$tgt" -c "$ws" "$(idle_cmd "$role")"
   }
 
   if [ "$n" -le 2 ]; then
-    # orch left, workers stacked right; force EXACT 50/50 horizontal split.
-    [ "$n" -ge 1 ] && { tmux split-window -h -p 50 -t "$SESSION:w0" -c "$ws"; spawn "$1" "$SESSION:w0.1"; }
-    [ "$n" -eq 2 ] && { tmux split-window -v -p 50 -t "$SESSION:w0.1" -c "$ws"; spawn "$2" "$SESSION:w0.2"; }
+    [ "$n" -ge 1 ] && record "$1" "$(split_idle "$1" "$SESSION:w0" -h -p 50)"
+    [ "$n" -eq 2 ] && record "$2" "$(split_idle "$2" "$SESSION:w0.1" -v -p 50)"
     tmux select-pane -t "$SESSION:w0.0"          # focus orchestrator
   else
-    tmux split-window -h -p 50 -t "$SESSION:w0" -c "$ws"; spawn "$1" "$SESSION:w0.1"; shift
+    record "$1" "$(split_idle "$1" "$SESSION:w0" -h -p 50)"; shift
     local win=1
     while [ "$#" -gt 0 ]; do
-      tmux new-window -t "$SESSION" -n "w$win" -c "$ws"; spawn "$1" "$SESSION:w$win.0"; shift
-      [ "$#" -gt 0 ] && { tmux split-window -h -p 50 -t "$SESSION:w$win" -c "$ws"; spawn "$1" "$SESSION:w$win.1"; shift; }
+      local pid; pid=$(tmux new-window -P -F '#{pane_id}' -t "$SESSION" -n "w$win" -c "$ws" "$(idle_cmd "$1")")
+      record "$1" "$pid"; shift
+      [ "$#" -gt 0 ] && { record "$1" "$(split_idle "$1" "$SESSION:w$win" -h -p 50)"; shift; }
       win=$((win+1))
     done
   fi
