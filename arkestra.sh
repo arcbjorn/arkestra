@@ -386,11 +386,22 @@ style_session() {
   tmux setw -g window-status-bell-style "none"
 }
 
+# ensure arkestra's scratch paths are git-ignored in the repo (idempotent).
+# Appends a guarded block to .gitignore; never clobbers existing content.
+ensure_gitignore() {
+  local repo="$1" gi="$1/.gitignore"
+  grep -q '^# arkestra$' "$gi" 2>/dev/null && return 0   # block already present
+  { [ -s "$gi" ] && printf '\n'
+    printf '# arkestra\n.agent-out/\n.worktrees/\n'
+  } >> "$gi"
+}
+
 # =====================================================================
 # LAUNCH: build tmux structure; all workers run in the SHARED workspace.
 # =====================================================================
 launch() {
   local roles="$1" repo="$2" ws="$3"
+  ensure_gitignore "$repo"
   local out="$ws/.agent-out"; mkdir -p "$out"
   : > "$out/PANES.md"   # role -> pane map the orchestrator reads to dispatch
 
