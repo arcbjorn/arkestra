@@ -38,25 +38,25 @@ PRIORITY="arch coding impl logs git"
 CONF_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/arkestra"
 CONF="$CONF_DIR/agents.conf"
 
-# read a role's saved default from agents.conf (empty if unset)
-conf_get() { [ -f "$CONF" ] && awk -v r="$1" '$1==r{print $2; exit}' "$CONF"; }
-# write/replace a role's default in agents.conf
+# conf line format: <role> <harness> <model>
+# saved harness's model (field 3); empty if role unset
+conf_get()     { [ -f "$CONF" ] && awk -v r="$1" '$1==r{print $3; exit}' "$CONF"; }
+# saved harness (field 2); empty if role unset
+conf_harness() { [ -f "$CONF" ] && awk -v r="$1" '$1==r{print $2; exit}' "$CONF"; }
+# write/replace a role's harness+model in agents.conf
 conf_set() {
   mkdir -p "$CONF_DIR"
   if [ ! -f "$CONF" ]; then
     cat > "$CONF" <<'EOF'
-# arkestra per-role model defaults. EMPTY by default -> each role uses its CLI's
-# own configured model. Add a line ONLY to deliberately override a role here.
-# Resolution order at launch:
-#   1. --<role> <model> flag (this session)
-#   2. this file (your persistent choice)        <- set via `tools agents set <role>`
-#   3. the CLI's own configured default (fallback)
-# Format: <role> <model>   (one per line). Set with the picker; do not invent ids.
+# arkestra per-role overrides. EMPTY by default -> each role uses its default
+# harness (CLI) and that CLI's own configured model. Add a line ONLY to override.
+# Resolution: 1) --<role> flag (session) 2) this file 3) the default.
+# Format: <role> <harness> <model>   (set via `tools agents set <role>`).
 EOF
   fi
   local tmp="$CONF.tmp"
   grep -v "^$1[[:space:]]" "$CONF" > "$tmp" 2>/dev/null || true
-  echo "$1 $2" >> "$tmp"
+  echo "$1 $2 $3" >> "$tmp"
   mv "$tmp" "$CONF"
 }
 
@@ -92,28 +92,34 @@ OTHER COMMANDS:
 EOF
 }
 
-# ---- role -> CLI label / dispatch identity ----
-cli_for() { case "$1" in
+# ---- role -> DEFAULT harness (the hardwired fallback; overridable via conf/flag) ----
+default_harness() { case "$1" in
   arch) echo codex;; coding) echo opencode;; impl) echo pi;;
-  logs) echo agy;; git) echo pi-git;; esac; }
+  logs) echo agy;; git) echo pi;; esac; }
 
-# ---- per-role: configured default model ----
-default_for() { case "$1" in
-  arch)   grep -iE '^[[:space:]]*model[[:space:]]*=' "$HOME/.codex/config.toml" 2>/dev/null \
-            | head -1 | sed -E 's/.*"([^"]+)".*/\1/' ;;
-  coding) # opencode's ACTIVE model = recent[0] in its state file (what the TUI launches
-          # with), NOT opencode.jsonc's "model" (a stale profile). Fall back to jsonc.
-          local mj="${XDG_STATE_HOME:-$HOME/.local/state}/opencode/model.json"
-          if [ -f "$mj" ]; then
-            sed -E 's/.*"recent":\[\{"providerID":"([^"]+)","modelID":"([^"]+)".*/\1\/\2/' "$mj" 2>/dev/null | head -1
-          else
-            grep -iE '"model"[[:space:]]*:' "$HOME/.config/opencode/opencode.jsonc" 2>/dev/null \
-              | head -1 | sed -E 's/.*"model"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/'
-          fi ;;
-  impl|git) # pi's ACTUAL default = defaultProvider/defaultModel in its settings,
-            # NOT the first row of `pi --list-models` (that's just sort order).
-            pi_default ;;
-  logs)   agy_default ;;
+# ---- resolve a role's harness: --flag override > agents.conf > default_harness ----
+harness_for() {
+  local role="$1" h
+  eval "h=\${OVH_$role:-}"; [ -n "$h" ] && { echo "$h"; return; }
+  h=$(conf_harness "$role"); [ -n "$h" ] && { echo "$h"; return; }
+  default_harness "$role"
+}
+
+# ---- per-HARNESS: that CLI's configured default model ----
+default_for() { case "$1" in   # $1 = harness
+  codex)    grep -iE '^[[:space:]]*model[[:space:]]*=' "$HOME/.codex/config.toml" 2>/dev/null \
+              | head -1 | sed -E 's/.*"([^"]+)".*/\1/' ;;
+  opencode) # opencode's ACTIVE model = recent[0] in its state file (what the TUI launches
+            # with), NOT opencode.jsonc's "model" (a stale profile). Fall back to jsonc.
+            local mj="${XDG_STATE_HOME:-$HOME/.local/state}/opencode/model.json"
+            if [ -f "$mj" ]; then
+              sed -E 's/.*"recent":\[\{"providerID":"([^"]+)","modelID":"([^"]+)".*/\1\/\2/' "$mj" 2>/dev/null | head -1
+            else
+              grep -iE '"model"[[:space:]]*:' "$HOME/.config/opencode/opencode.jsonc" 2>/dev/null \
+                | head -1 | sed -E 's/.*"model"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/'
+            fi ;;
+  pi)       pi_default ;;
+  agy)      agy_default ;;
 esac; }
 
 # agy's active model: it stores no user default, but logs the selected model
@@ -139,35 +145,36 @@ pi_default() {
   if [ -n "$prov" ]; then echo "$prov/$mdl"; else echo "$mdl"; fi
 }
 
-# ---- per-role: is model valid for that CLI? ----
-valid_for() { local r="$1" m="$2"; [ -n "$m" ] || return 1; case "$r" in
-  arch)        codex --help >/dev/null 2>&1 ;;                       # trust config/-m
-  coding)      opencode models 2>/dev/null | grep -qx "$m" ;;
-  impl|git)    pi --list-models 2>/dev/null | grep -q "${m##*/}" ;;
-  logs)        command -v agy >/dev/null 2>&1 ;;
+# ---- per-HARNESS: is model valid / callable for that CLI? ----
+valid_for() { local h="$1" m="$2"; [ -n "$m" ] || return 1; case "$h" in   # $1 = harness
+  codex)     codex --help >/dev/null 2>&1 ;;                       # trust config/-m
+  opencode)  opencode models 2>/dev/null | grep -qx "$m" ;;
+  pi)        pi --list-models 2>/dev/null | grep -q "${m##*/}" ;;
+  agy)       command -v agy >/dev/null 2>&1 ;;
+  *)         command -v "$h" >/dev/null 2>&1 ;;                     # unknown harness: just exists
 esac; }
 
-# ---- per-role: the REAL model list from that CLI (one id per line) ----
+# ---- per-HARNESS: the REAL model list from that CLI (one id per line) ----
 # Sourced straight from each CLI; nothing invented.
-list_models_for() { case "$1" in
-  coding)    opencode models 2>/dev/null ;;
-  impl|git)  pi --list-models 2>/dev/null | sed -n '2,$p' | awk '{print $1"/"$2}' ;;
-  arch)      pi --list-models 2>/dev/null | awk '/openai-codex/{print $2}' ;;  # gpt-5.x ids
-  logs)      agy models 2>/dev/null ;;
+list_models_for() { case "$1" in   # $1 = harness
+  opencode)  opencode models 2>/dev/null ;;
+  pi)        pi --list-models 2>/dev/null | sed -n '2,$p' | awk '{print $1"/"$2}' ;;
+  codex)     pi --list-models 2>/dev/null | awk '/openai-codex/{print $2}' ;;  # gpt-5.x ids
+  agy)       agy models 2>/dev/null ;;
 esac; }
 
 suggest_for() { list_models_for "$1" | head -6 | sed 's/^/      /'; }
 
-# ---- per-role: the headless command that runs ONE task and exits ----
+# ---- per-HARNESS: the headless command that runs ONE task and exits ----
 # Used by `dispatch`. Writes the sentinel with exit code on completion.
 worker_cmd() {
-  local role="$1" model="$2" task="$3"
-  case "$role" in
-    arch)   echo "codex exec -s workspace-write -m '$model' '$task'";;
-    coding) echo "opencode run -m '$model' '$task'";;
-    impl)   echo "pi --model '$model' -p '$task'";;
-    git)    echo "pi --model '$model' -p '$task'";;
-    logs)   echo "agy --model '$model' -p '$task'";;
+  local harness="$1" model="$2" task="$3"
+  case "$harness" in
+    codex)    echo "codex exec -s workspace-write -m '$model' '$task'";;
+    opencode) echo "opencode run -m '$model' '$task'";;
+    pi)       echo "pi --model '$model' -p '$task'";;
+    agy)      echo "agy --model '$model' -p '$task'";;
+    *)        echo "$harness -p '$task'";;   # unknown: best-effort headless
   esac
 }
 
@@ -194,19 +201,19 @@ probe() {
   printf "\n  ${BLUE}%-8s %-10s %-30s %s${NC}\n" ROLE CLI MODEL SOURCE
   printf "  %-8s %-10s %-30s %s\n" -------- ---------- ------------------------------ ------
   for r in $roles; do
-    local cli model src ovar
-    cli=$(cli_for "$r")
+    local harness model src
+    harness=$(harness_for "$r")            # --flag > conf > default_harness
     eval "model=\${OVR_$r:-}"
     if [ -n "$model" ]; then src="override"
     elif model=$(conf_get "$r"); [ -n "$model" ]; then src="arkestra default"
-    else model=$(default_for "$r"); src="CLI default"; fi
-    if valid_for "$r" "$model"; then
-      printf "  %-8s %-10s %-30s %s  ${GREEN}[OK]${NC}\n" "$r" "$cli" "$model" "$src"
-      eval "RESOLVED_$r=\"\$model\""
+    else model=$(default_for "$harness"); src="CLI default"; fi
+    if valid_for "$harness" "$model"; then
+      printf "  %-8s %-10s %-30s %s  ${GREEN}[OK]${NC}\n" "$r" "$harness" "$model" "$src"
+      eval "RESOLVED_$r=\"\$model\""; eval "RESOLVED_H_$r=\"\$harness\""
     else
-      printf "  %-8s %-10s %-30s %s  ${RED}[UNAVAILABLE]${NC}\n" "$r" "$cli" "$model" "$src"
-      printf "      ${YELLOW}^ '%s' not found for %s. Available (sample):${NC}\n" "$model" "$cli"
-      suggest_for "$r"
+      printf "  %-8s %-10s %-30s %s  ${RED}[UNAVAILABLE]${NC}\n" "$r" "$harness" "$model" "$src"
+      printf "      ${YELLOW}^ '%s' not found for %s. Available (sample):${NC}\n" "$model" "$harness"
+      suggest_for "$harness"
       blocked=1
     fi
   done
@@ -270,13 +277,13 @@ launch() {
   # spawn: start the worker's CLI IDLE (no task) and record its pane in PANES.md.
   # The orchestrator dispatches real tasks into these panes via tmux send-keys.
   spawn() {
-    local role="$1" target="$2" model
-    eval "model=\${RESOLVED_$role}"
+    local role="$1" target="$2" model harness
+    eval "model=\${RESOLVED_$role}"; eval "harness=\${RESOLVED_H_$role}"
     # write the idle banner to a per-role file, then have the pane cat+clear it.
     # Sending a short `clear; cat FILE` avoids the long-printf line wrapping/echo.
-    banner_for "$role" "$model" > "$out/.banner-$role"
+    banner_for "$role" "$harness/$model" > "$out/.banner-$role"
     tmux send-keys -t "$target" "clear; cat '$out/.banner-$role'" Enter
-    printf '%-7s pane=%s  model=%s\n' "$role" "$target" "$model" >> "$out/PANES.md"
+    printf '%-7s pane=%s  harness=%s  model=%s\n' "$role" "$target" "$harness" "$model" >> "$out/PANES.md"
   }
 
   if [ "$n" -le 2 ]; then
@@ -311,9 +318,11 @@ cmd_dispatch() {
   local out="$repo/.agent-out"
   local line; line=$(awk -v r="$role" '$1==r{print; exit}' "$out/PANES.md" 2>/dev/null)
   [ -n "$line" ] || die "role '$role' not found in PANES.md (is the swarm running?)"
-  local pane model; pane=$(echo "$line" | sed -E 's/.*pane=([^ ]+).*/\1/')
-  model=$(echo "$line" | sed -E 's/.*model=([^ ]+).*/\1/')
-  local cmd; cmd=$(worker_cmd "$role" "$model" "$task")
+  local pane harness model
+  pane=$(echo "$line"    | sed -E 's/.*pane=([^ ]+).*/\1/')
+  harness=$(echo "$line" | sed -E 's/.*harness=([^ ]+).*/\1/')
+  model=$(echo "$line"   | sed -E 's/.*model=(.+)$/\1/')   # model is last; may contain spaces
+  local cmd; cmd=$(worker_cmd "$harness" "$model" "$task")
   rm -f "$out/$role.done"
   tmux send-keys -t "$pane" \
     "$cmd; echo \$? > '$out/$role.done'; echo '[$role done; sentinel written]'" Enter
@@ -350,26 +359,45 @@ cmd_stop() {
   fi
 }
 
+ALL_HARNESSES="codex opencode pi agy"   # claude excluded (it is the orchestrator)
+
 # =====================================================================
-# `tools agents set <role>` — pick a model from the role's CLI, save to conf.
+# `tools agents set <role>` — pick HARNESS, then a model from it; save to conf.
 # =====================================================================
 cmd_set() {
   local role="${1:-}"
   case " $PRIORITY " in *" $role "*) :;; *) die "set <role>: one of $PRIORITY";; esac
-  local cli; cli=$(cli_for "$role")
-  printf "${BLUE}set %s${NC} (cli: %s) — models the CLI reports:\n" "$role" "$cli" >&2
-  local models; models=$(list_models_for "$role")
-  local i=1; local list=""
+
+  # 1) pick the harness (any installed CLI; default = the role's default harness)
+  local def; def=$(default_harness "$role")
+  printf "${BLUE}set %s${NC} — pick a harness (CLI):\n" "$role" >&2
+  local i=1 hlist=""
+  for h in $ALL_HARNESSES; do
+    local mark=""; [ "$h" = "$def" ] && mark=" ${GRAY}(default)${NC}"
+    command -v "$h" >/dev/null 2>&1 && printf "  %d) %b%b\n" "$i" "$h" "$mark" >&2
+    hlist="$hlist$h
+"; i=$((i+1))
+  done
+  printf "  pick a number [Enter=%s]: " "$def" >&2
+  local hp; read -r hp || true
+  local harness
+  if [ -z "$hp" ]; then harness="$def"
+  elif echo "$hp" | grep -qE '^[0-9]+$'; then harness=$(echo "$hlist" | sed -n "${hp}p")
+  else harness="$hp"; fi
+  [ -n "$harness" ] || die "no harness picked"
+
+  # 2) pick a model from THAT harness (or type any callable id)
+  printf "${BLUE}  harness %s${NC} — models it reports:\n" "$harness" >&2
+  local models; models=$(list_models_for "$harness")
+  local j=1 list=""
   if [ -n "$models" ]; then
-    while IFS= read -r m; do printf "  %2d) %s\n" "$i" "$m" >&2; list="$list$m
-"; i=$((i+1)); done <<EOF
+    while IFS= read -r m; do printf "  %2d) %s\n" "$j" "$m" >&2; list="$list$m
+"; j=$((j+1)); done <<EOF
 $models
 EOF
   else
-    printf "  ${GRAY}(the CLI listed no models — type any callable id directly)${NC}\n" >&2
+    printf "  ${GRAY}(no models listed — type any callable id directly)${NC}\n" >&2
   fi
-  # number selects from the list; anything else is taken verbatim (CLIs don't
-  # always LIST a model that is still callable).
   printf "  pick a number, or type/paste any model id: " >&2
   local pick; read -r pick || true
   local chosen
@@ -377,8 +405,9 @@ EOF
     chosen=$(echo "$list" | sed -n "${pick}p")
   else chosen="$pick"; fi
   [ -n "$chosen" ] || die "nothing picked"
-  conf_set "$role" "$chosen"
-  printf "${GREEN}saved:${NC} %s -> %s  (%s)\n" "$role" "$chosen" "$CONF" >&2
+
+  conf_set "$role" "$harness" "$chosen"
+  printf "${GREEN}saved:${NC} %s -> %s / %s  (%s)\n" "$role" "$harness" "$chosen" "$CONF" >&2
 }
 
 main() {

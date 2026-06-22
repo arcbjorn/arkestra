@@ -18,15 +18,21 @@ coordinated via file sentinels. Invoked as `tools agents`.
   validates it against that CLI's real model list, and blocks with suggested
   fixes before launching anything.
 
-## Persistent per-role model defaults
+## Persistent per-role harness + model
 
-Set once, used on every launch (no re-typing). The picker lists the real models
-from that role's CLI — nothing invented:
+Set once, used on every launch. `tools agents set <role>` picks the **harness**
+(any installed CLI — codex/opencode/pi/agy) first, then a **model** from it
+(lists the CLI's real models, or type any callable id). Saved to
+`~/.config/arkestra/agents.conf` as `<role> <harness> <model>`.
 
 ```bash
-tools agents set coding     # pick from opencode's models -> ~/.config/arkestra/agents.conf
-tools agents set impl       # pick from pi's models
+tools agents set git        # e.g. pick opencode -> opencode/mimo-v2.5-free (free)
+tools agents set coding     # pick a harness, then a model
 ```
+
+Resolution per role (harness and model each): `--<role>` flag (session) >
+agents.conf > the role's default harness / that CLI's own model. Empty conf =
+every role uses its default harness and that CLI's configured model.
 
 ## Roles (fixed priority; give any subset, unused are skipped)
 
