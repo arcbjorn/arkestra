@@ -45,7 +45,9 @@ conf_set() {
   mkdir -p "$CONF_DIR"
   if [ ! -f "$CONF" ]; then
     cat > "$CONF" <<'EOF'
-# arkestra per-role model defaults. Resolution order at launch:
+# arkestra per-role model defaults. EMPTY by default -> each role uses its CLI's
+# own configured model. Add a line ONLY to deliberately override a role here.
+# Resolution order at launch:
 #   1. --<role> <model> flag (this session)
 #   2. this file (your persistent choice)        <- set via `tools agents set <role>`
 #   3. the CLI's own configured default (fallback)
@@ -324,18 +326,23 @@ cmd_set() {
   local role="${1:-}"
   case " $PRIORITY " in *" $role "*) :;; *) die "set <role>: one of $PRIORITY";; esac
   local cli; cli=$(cli_for "$role")
-  printf "${BLUE}set %s${NC} (cli: %s) — models from the CLI itself:\n" "$role" "$cli" >&2
+  printf "${BLUE}set %s${NC} (cli: %s) — models the CLI reports:\n" "$role" "$cli" >&2
   local models; models=$(list_models_for "$role")
-  [ -n "$models" ] || die "no models returned by $cli for role '$role'"
   local i=1; local list=""
-  while IFS= read -r m; do printf "  %2d) %s\n" "$i" "$m" >&2; list="$list$m
+  if [ -n "$models" ]; then
+    while IFS= read -r m; do printf "  %2d) %s\n" "$i" "$m" >&2; list="$list$m
 "; i=$((i+1)); done <<EOF
 $models
 EOF
-  printf "  pick number (or paste exact id): " >&2
+  else
+    printf "  ${GRAY}(the CLI listed no models — type any callable id directly)${NC}\n" >&2
+  fi
+  # number selects from the list; anything else is taken verbatim (CLIs don't
+  # always LIST a model that is still callable).
+  printf "  pick a number, or type/paste any model id: " >&2
   local pick; read -r pick || true
   local chosen
-  if echo "$pick" | grep -qE '^[0-9]+$'; then
+  if echo "$pick" | grep -qE '^[0-9]+$' && [ -n "$list" ]; then
     chosen=$(echo "$list" | sed -n "${pick}p")
   else chosen="$pick"; fi
   [ -n "$chosen" ] || die "nothing picked"
