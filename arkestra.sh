@@ -299,13 +299,16 @@ pick_workspace() {
   ui_title "workspace" "all workers share one tree"
 
   # build menu: current branch first, then other branches, then "new worktree".
-  local opts="● $cur  (current)
-"
-  local b; for b in $(git -C "$repo" for-each-ref --format='%(refname:short)' refs/heads 2>/dev/null); do
-    [ "$b" = "$cur" ] && continue; opts="$opts○ $b
-"
+  # (use printf for newlines — embedded literal newlines in assignments are fragile
+  # under set -u and can corrupt the var.) Hide arkestra's throwaway agents/* branches.
+  local opts; opts=$(printf '● %s  (current)\n' "$cur")
+  local b
+  for b in $(git -C "$repo" for-each-ref --format='%(refname:short)' refs/heads 2>/dev/null); do
+    [ "$b" = "$cur" ] && continue
+    case "$b" in agents/*) continue ;; esac
+    opts=$(printf '%s\n○ %s' "$opts" "$b")
   done
-  opts="$opts+ new worktree off $cur"
+  opts=$(printf '%s\n+ new worktree off %s' "$opts" "$cur")
 
   local pick; pick=$(ui_choose "where should the team work?" "$opts")
   [ -n "$pick" ] || { echo "$repo"; return; }                # default = current
