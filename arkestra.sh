@@ -29,10 +29,45 @@ set -eu
 
 SESSION="arkestra"
 RED='\033[38;5;1m'; GREEN='\033[38;5;2m'; YELLOW='\033[38;5;3m'
-BLUE='\033[38;5;4m'; GRAY='\033[38;5;8m'; NC='\033[0m'
-die() { printf "${RED}error:${NC} %s\n" "$*" >&2; exit 1; }
+BLUE='\033[38;5;4m'; MAGENTA='\033[38;5;5m'; CYAN='\033[38;5;6m'
+WHITE='\033[38;5;7m'; GRAY='\033[38;5;8m'; B='\033[1m'; DIM='\033[2m'; NC='\033[0m'
+die() { printf "${RED}✗${NC} %s\n" "$*" >&2; exit 1; }
 
 PRIORITY="arch coding impl logs git"
+
+# ---- UI primitives (clean minimal; gum where available, ANSI fallback) ----
+# ARKESTRA_NO_GUM=1 forces the ANSI fallback (useful for testing / no-tty).
+if [ "${ARKESTRA_NO_GUM:-0}" = 1 ]; then HAS_GUM=0
+elif command -v gum >/dev/null 2>&1; then HAS_GUM=1; else HAS_GUM=0; fi
+
+ui_title() {
+  if [ -n "${2:-}" ]; then printf "\n${B}${BLUE}%s${NC} ${DIM}%s${NC}\n" "$1" "$2" >&2
+  else printf "\n${B}${BLUE}%s${NC}\n" "$1" >&2; fi
+}
+ui_rule()  { printf "${GRAY}%s${NC}\n" "────────────────────────────────────────────────" >&2; }
+ui_ok()    { printf "  ${GREEN}✓${NC} %s\n" "$1" >&2; }
+ui_err()   { printf "  ${RED}✗${NC} %s\n" "$1" >&2; }
+ui_kv()    { printf "  ${GRAY}%-9s${NC} %s\n" "$1" "$2" >&2; }
+
+# ui_choose <header> <newline-separated-options>  -> echoes the chosen line.
+# gum: arrow-key + fuzzy filter menu. fallback: numbered prompt.
+ui_choose() {
+  local header="$1" opts="$2"
+  if [ "$HAS_GUM" = 1 ]; then
+    printf '%s' "$opts" | gum filter --no-fuzzy=false \
+      --header="$header" --height=12 --indicator="❯" \
+      --prompt="  " --placeholder="type to filter…" 2>/dev/null
+  else
+    printf "${DIM}%s${NC}\n" "$header" >&2
+    local i=1; printf '%s' "$opts" | while IFS= read -r o; do
+      printf "  ${CYAN}%2d${NC} %s\n" "$i" "$o" >&2; i=$((i+1)); done
+    printf "  ${GRAY}number, or type any value:${NC} " >&2
+    local pick; read -r pick || true
+    if printf '%s' "$pick" | grep -qE '^[0-9]+$'; then
+      printf '%s' "$opts" | sed -n "${pick}p"
+    else printf '%s' "$pick"; fi
+  fi
+}
 
 # Persistent per-role model defaults (set once via `tools agents set <role>`).
 CONF_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/arkestra"
@@ -206,32 +241,40 @@ order_roles() { local want=" $* " out=""; for p in $PRIORITY; do
 probe() {
   local roles="$1"; shift
   local blocked=0
-  printf "\n  ${BLUE}%-8s %-10s %-30s %s${NC}\n" ROLE CLI MODEL SOURCE
-  printf "  %-8s %-10s %-30s %s\n" -------- ---------- ------------------------------ ------
+  ui_title "pre-flight"
+  printf "    ${GRAY}${B}%-6s  %-9s  %-26s  %s${NC}\n" ROLE HARNESS MODEL SOURCE >&2
   for r in $roles; do
     local harness model src
     harness=$(harness_for "$r")            # --flag > conf > default_harness
     eval "model=\${OVR_$r:-}"
-    if [ -n "$model" ]; then src="override"
-    elif model=$(conf_get "$r"); [ -n "$model" ]; then src="arkestra default"
-    else model=$(default_for "$harness"); src="CLI default"; fi
+    if [ -n "$model" ]; then src="flag"
+    elif model=$(conf_get "$r"); [ -n "$model" ]; then src="config"
+    else model=$(default_for "$harness"); src="cli"; fi
     if valid_for "$harness" "$model"; then
-      printf "  %-8s %-10s %-30s %s  ${GREEN}[OK]${NC}\n" "$r" "$harness" "$model" "$src"
+      printf "  ${GREEN}●${NC} ${B}%-6s${NC}  ${CYAN}%-9s${NC}  %-26s  ${DIM}%s${NC}\n" \
+        "$r" "$harness" "$model" "$src" >&2
       eval "RESOLVED_$r=\"\$model\""; eval "RESOLVED_H_$r=\"\$harness\""
     else
-      printf "  %-8s %-10s %-30s %s  ${RED}[UNAVAILABLE]${NC}\n" "$r" "$harness" "$model" "$src"
-      printf "      ${YELLOW}^ '%s' not found for %s. Available (sample):${NC}\n" "$model" "$harness"
-      suggest_for "$harness"
+      printf "  ${RED}●${NC} ${B}%-6s${NC}  ${CYAN}%-9s${NC}  ${RED}%-26s${NC}  ${DIM}%s${NC}\n" \
+        "$r" "$harness" "$model" "$src" >&2
+      printf "    ${YELLOW}↳ not available for %s. try:${NC} %s\n" \
+        "$harness" "$(list_models_for "$harness" | head -3 | tr '\n' ' ')" >&2
       blocked=1
     fi
   done
   if [ "$blocked" -eq 1 ]; then
-    printf "\n  ${RED}BLOCKED:${NC} fix the model(s) above (--<role> <model>) and rerun. Nothing launched.\n"
+    printf "\n  ${RED}✗ blocked${NC} ${DIM}— fix the model(s) above, then rerun. nothing launched.${NC}\n" >&2
     return 1
   fi
-  printf "\n  Launch this structure? [y/N] "
+  printf "\n" >&2
+  if [ "$HAS_GUM" = 1 ]; then
+    gum confirm "Launch this swarm?" --affirmative="Launch" --negative="Cancel" \
+      --selected.background="2" --selected.foreground="0" && return 0
+    printf "  ${DIM}cancelled.${NC}\n" >&2; return 2
+  fi
+  printf "  ${B}launch this swarm?${NC} ${DIM}[y/N]${NC} " >&2
   local ans; read -r ans || true
-  case "$ans" in y|Y|yes) return 0 ;; *) echo "  aborted."; return 2 ;; esac
+  case "$ans" in y|Y|yes) return 0 ;; *) printf "  ${DIM}cancelled.${NC}\n" >&2; return 2 ;; esac
 }
 
 # =====================================================================
@@ -242,21 +285,29 @@ probe() {
 pick_workspace() {
   local repo="$1"
   local cur; cur=$(git -C "$repo" rev-parse --abbrev-ref HEAD 2>/dev/null || echo HEAD)
-  printf "${BLUE}workspace:${NC} all workers share one tree (orchestrator sequences writers).\n" >&2
-  printf "  current branch: ${GREEN}%s${NC}  (%s)\n" "$cur" "$repo" >&2
-  local branches; branches=$(git -C "$repo" for-each-ref --format='%(refname:short)' refs/heads 2>/dev/null | grep -v "^$cur$")
-  [ -n "$branches" ] && { printf "  other local branches: %s\n" "$(echo $branches)" >&2; }
-  printf "  [Enter]=use current  |  <branch>=checkout it here  |  new:<base>=fresh worktree\n  > " >&2
-  local choice; read -r choice || true
-  case "$choice" in
-    "")        echo "$repo" ;;                                  # current checkout
-    new:*)     local base="${choice#new:}"; local wt="$repo/.worktrees/agents-$$"
-               git -C "$repo" worktree add -q "$wt" "${base:-$cur}" >&2 || die "worktree add failed"
-               echo "$wt" ;;
-    *)         git -C "$repo" rev-parse --verify -q "$choice" >/dev/null \
-                 || die "no such branch '$choice'"
-               git -C "$repo" checkout -q "$choice" >&2 || die "checkout '$choice' failed"
-               echo "$repo" ;;
+  ui_title "workspace" "all workers share one tree"
+
+  # build menu: current branch first, then other branches, then "new worktree".
+  local opts="● $cur  (current)
+"
+  local b; for b in $(git -C "$repo" for-each-ref --format='%(refname:short)' refs/heads 2>/dev/null); do
+    [ "$b" = "$cur" ] && continue; opts="$opts○ $b
+"
+  done
+  opts="$opts+ new worktree off $cur"
+
+  local pick; pick=$(ui_choose "where should the swarm work?" "$opts")
+  [ -n "$pick" ] || { echo "$repo"; return; }                # default = current
+  case "$pick" in
+    *"(current)") echo "$repo" ;;
+    "+ new worktree"*)
+        local wt="$repo/.worktrees/agents-$$"
+        git -C "$repo" worktree add -q "$wt" "$cur" >&2 || die "worktree add failed"
+        ui_ok "fresh worktree: ${wt##*/}"; echo "$wt" ;;
+    "○ "*)  local br="${pick#○ }"; br="${br%% *}"
+        git -C "$repo" checkout -q "$br" >&2 || die "checkout '$br' failed"
+        ui_ok "checked out $br"; echo "$repo" ;;
+    *)  echo "$repo" ;;
   esac
 }
 
@@ -349,8 +400,9 @@ launch() {
     done
   fi
 
-  printf "\n${GREEN}launched.${NC} attach:  ${BLUE}tmux attach -t %s${NC}\n" "$SESSION"
-  printf "  ${GRAY}zoom: Ctrl-b z   switch window: Option+Tab   sentinels: %s/   stop: tools agents stop${NC}\n" ".agent-out"
+  ui_title "swarm launched"
+  printf "  ${GREEN}✓${NC} attach   ${B}tmux attach -t %s${NC}\n" "$SESSION" >&2
+  printf "  ${GRAY}·${NC} switch   ${DIM}Option+Tab${NC}   ${GRAY}·${NC} zoom ${DIM}Ctrl-b z${NC}   ${GRAY}·${NC} stop ${DIM}tools agents stop${NC}\n" >&2
 }
 
 # =====================================================================
@@ -436,47 +488,35 @@ ALL_HARNESSES="codex opencode pi agy"   # claude excluded (it is the orchestrato
 cmd_set() {
   local role="${1:-}"
   case " $PRIORITY " in *" $role "*) :;; *) die "set <role>: one of $PRIORITY";; esac
-
-  # 1) pick the harness (any installed CLI; default = the role's default harness)
   local def; def=$(default_harness "$role")
-  printf "${BLUE}set %s${NC} — pick a harness (CLI):\n" "$role" >&2
-  local i=1 hlist=""
-  for h in $ALL_HARNESSES; do
-    local mark=""; [ "$h" = "$def" ] && mark=" ${GRAY}(default)${NC}"
-    command -v "$h" >/dev/null 2>&1 && printf "  %d) %b%b\n" "$i" "$h" "$mark" >&2
-    hlist="$hlist$h
-"; i=$((i+1))
-  done
-  printf "  pick a number [Enter=%s]: " "$def" >&2
-  local hp; read -r hp || true
-  local harness
-  if [ -z "$hp" ]; then harness="$def"
-  elif echo "$hp" | grep -qE '^[0-9]+$'; then harness=$(echo "$hlist" | sed -n "${hp}p")
-  else harness="$hp"; fi
-  [ -n "$harness" ] || die "no harness picked"
+  ui_title "configure role" "$role"
 
-  # 2) pick a model from THAT harness (or type any callable id)
-  printf "${BLUE}  harness %s${NC} — models it reports:\n" "$harness" >&2
+  # 1) pick the harness — only installed ones, default marked.
+  local hopts=""
+  for h in $ALL_HARNESSES; do
+    command -v "$h" >/dev/null 2>&1 || continue
+    if [ "$h" = "$def" ]; then hopts="$hopts$h  (default)
+"; else hopts="$hopts$h
+"; fi
+  done
+  local harness; harness=$(ui_choose "harness (CLI) for $role:" "$hopts")
+  harness="${harness%%  *}"                       # strip the "(default)" suffix
+  [ -n "$harness" ] || harness="$def"             # empty pick = default
+
+  # 2) pick a model from that harness (gum filter; or type any callable id).
   local models; models=$(list_models_for "$harness")
-  local j=1 list=""
-  if [ -n "$models" ]; then
-    while IFS= read -r m; do printf "  %2d) %s\n" "$j" "$m" >&2; list="$list$m
-"; j=$((j+1)); done <<EOF
-$models
-EOF
-  else
-    printf "  ${GRAY}(no models listed — type any callable id directly)${NC}\n" >&2
-  fi
-  printf "  pick a number, or type/paste any model id: " >&2
-  local pick; read -r pick || true
   local chosen
-  if echo "$pick" | grep -qE '^[0-9]+$' && [ -n "$list" ]; then
-    chosen=$(echo "$list" | sed -n "${pick}p")
-  else chosen="$pick"; fi
+  if [ -n "$models" ]; then
+    chosen=$(ui_choose "model for $harness:" "$models")
+  else
+    printf "  ${GRAY}%s lists no models — type any callable id:${NC} " "$harness" >&2
+    read -r chosen || true
+  fi
   [ -n "$chosen" ] || die "nothing picked"
 
   conf_set "$role" "$harness" "$chosen"
-  printf "${GREEN}saved:${NC} %s -> %s / %s  (%s)\n" "$role" "$harness" "$chosen" "$CONF" >&2
+  printf "\n  ${GREEN}✓${NC} ${B}%s${NC} ${GRAY}→${NC} ${CYAN}%s${NC} ${GRAY}·${NC} %s\n" "$role" "$harness" "$chosen" >&2
+  printf "  ${DIM}saved to %s${NC}\n" "$CONF" >&2
 }
 
 main() {
@@ -511,7 +551,6 @@ main() {
   [ -n "$roles" ] || die "no valid roles"
 
   local ws; ws=$(pick_workspace "$repo") || exit $?
-  printf "${BLUE}pre-flight:${NC} probing %s  ${GRAY}(workspace: %s)${NC}\n" "$roles" "$ws"
   probe "$roles" || exit $?
   launch "$roles" "$repo" "$ws"
 }
