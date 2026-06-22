@@ -165,16 +165,22 @@ esac; }
 
 suggest_for() { list_models_for "$1" | head -6 | sed 's/^/      /'; }
 
+# ---- shquote: wrap a string in single quotes, escaping any inner ' safely.
+# Without this, a task/model containing a single quote breaks shell parsing
+# (the worker sees stray flags -> "Unknown option: -"). Idiom: ' -> '\''
+shquote() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
+
 # ---- per-HARNESS: the headless command that runs ONE task and exits ----
 # Used by `dispatch`. Writes the sentinel with exit code on completion.
 worker_cmd() {
-  local harness="$1" model="$2" task="$3"
+  local harness="$1" model="$2" task="$3" m t
+  m=$(shquote "$model"); t=$(shquote "$task")
   case "$harness" in
-    codex)    echo "codex exec -s workspace-write -m '$model' '$task'";;
-    opencode) echo "opencode run -m '$model' '$task'";;
-    pi)       echo "pi --model '$model' -p '$task'";;
-    agy)      echo "agy --model '$model' -p '$task'";;
-    *)        echo "$harness -p '$task'";;   # unknown: best-effort headless
+    codex)    echo "codex exec -s workspace-write -m $m $t";;
+    opencode) echo "opencode run -m $m $t";;
+    pi)       echo "pi --model $m -p $t";;
+    agy)      echo "agy --model $m -p $t";;
+    *)        echo "$harness -p $t";;   # unknown: best-effort headless
   esac
 }
 
