@@ -501,8 +501,23 @@ cmd_dispatch() {
   pane=$(echo "$line"    | sed -E 's/.*pane=([^ ]+).*/\1/')
   harness=$(echo "$line" | sed -E 's/.*harness=([^ ]+).*/\1/')
   model=$(echo "$line"   | sed -E 's/.*model=(.+)$/\1/')   # model is last; may contain spaces
+  # GIT ROLE: the worker has no /commit slash-command, and the orchestrator must
+  # NOT reason about messages/branches. So we bake the commit contract into the
+  # task here: stage everything and commit per the rule, one granular commit per
+  # goal, single-line conventional message, <=50 chars, NO body/description.
+  local ftask="$task"
+  if [ "$role" = git ]; then
+    ftask="$task
+
+COMMIT RULE (follow exactly; do NOT think, just apply):
+- Run: git add -A
+- Make ONE granular commit per goal (split unrelated changes into separate commits).
+- Message format: <type>(<scope>): <description>  — types: feat fix docs style ref test chore
+- SINGLE LINE ONLY. No body, no description, no extra paragraphs. Max 50 chars total. Lowercase. No trailing period.
+- Use: git commit -m \"<message>\"  (one -m only; never a second -m or a heredoc body)."
+  fi
   # ask the worker to end with a one-line summary so .done carries a real signal.
-  local ftask="$task
+  ftask="$ftask
 
 When done, print a final line starting with SUMMARY: that states in <=15 words what you changed or found."
   local cmd; cmd=$(worker_cmd "$harness" "$model" "$ftask")
