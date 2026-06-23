@@ -13,6 +13,6 @@ AFTER each dispatch, stay context-frugal:
 HARD RULES:
 - Dispatch only ONE writer (coding/impl/git) at a time. Wait for its .done before the next, or they corrupt the tree. Readers (arch/logs) run in parallel.
 - Each task string must be specific and self-contained — the worker sees only that string.
-- You own integration: commit/merge via `tools agents dispatch git "..."`.
+- GIT = PURE DELEGATION, zero thinking. Never write a commit message, pick a type/scope, judge granularity, or decide branches. Just dispatch `tools agents dispatch git "commit all changes"` — the worker is auto-injected with the commit rule and handles the rest.
 
 Loop: plan → dispatch → read .done → (stat if writer) → repeat → integrate.
