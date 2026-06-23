@@ -503,15 +503,16 @@ cmd_dispatch() {
   model=$(echo "$line"   | sed -E 's/.*model=(.+)$/\1/')   # model is last; may contain spaces
   # GIT ROLE: the worker has no /commit slash-command, and the orchestrator must
   # NOT reason about messages/branches. So we bake the commit contract into the
-  # task here: stage everything and commit per the rule, one granular commit per
-  # goal, single-line conventional message, <=50 chars, NO body/description.
+  # task here: ONE commit per file/folder (NOT git add -A into one lump),
+  # single-line conventional message, <=50 chars, NO body/description.
   local ftask="$task"
   if [ "$role" = git ]; then
     ftask="$task
 
 COMMIT RULE (follow exactly; do NOT think, just apply):
-- Run: git add -A
-- Make ONE granular commit per goal (split unrelated changes into separate commits).
+- ONE commit per file OR per folder. NEVER lump everything into a single commit. Do NOT 'git add -A' then commit once.
+- A folder may be one commit ONLY if every file in it is the exact same change (e.g. a rename); otherwise commit file by file.
+- For each: stage just that file/folder (git add <path>) then commit it before staging the next.
 - Message format: <type>(<scope>): <description>  — types: feat fix docs style ref test chore
 - SINGLE LINE ONLY. No body, no description, no extra paragraphs. Max 50 chars total. Lowercase. No trailing period.
 - Use: git commit -m \"<message>\"  (one -m only; never a second -m or a heredoc body)."
