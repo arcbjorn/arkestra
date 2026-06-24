@@ -36,12 +36,14 @@ How one task flows — the orchestrator never touches the work, only the result:
    └────┬─────┘                                  ┌──────────────┐
         │                                        │  watchdog    │
    exit 0 ──▶ read summary · diff --stat ·       │  stall 90s   │
-        │     integrate · next task              │  cap   300s  │
+        │     integrate · next task              │  cap 300s*   │
         │                                        └──────┬───────┘
    ≠0 / 124 ──▶ HALT · report · never DIY               │ hung → write 124
         ▲                                               │ + reclaim pane
         └───────────────────────────────────────────────┘  (SIGINT → respawn)
 ```
+
+<sub>* cap is progress-aware: a worker still streaming output sails past it; it fires only once the worker is both past the cap and quiet.</sub>
 
 <details>
 <summary><b>Screenshots</b> — a 5-agent team across three windows</summary>
@@ -86,10 +88,14 @@ dispatches the right agents.
   `.agent-out/<role>.done` — line 1 = exit code, line 2 = a one-line summary.
   Full output is in `.agent-out/<role>.out` (de-ANSI'd, clean for tooling).
   A watchdog writes a failure sentinel (exit 124) if a worker hangs — detected
-  early by an output **stall** (`.out` stops growing for `ARKESTRA_STALL`s,
-  default 90) or an absolute `ARKESTRA_TIMEOUT` cap (default 300s). On a hang it
-  also reclaims the pane (SIGINT, then respawn if needed) so the role is ready
-  for the next dispatch.
+  by an output **stall** (`.out` stops growing for `ARKESTRA_STALL`s, default
+  90). The `ARKESTRA_TIMEOUT` cap (default 300s) is a *progress-aware* backstop:
+  past the cap it fires only if the worker has *also* gone quiet, so a healthy
+  worker that keeps streaming output is never killed mid-task — only one that's
+  blown the cap **and** fallen silent (the real "wedged" shape). Set
+  `ARKESTRA_HARD_STRICT=1` to restore an absolute wall-clock guillotine. On a
+  hang it also reclaims the pane (SIGINT, then respawn if needed) so the role is
+  ready for the next dispatch.
 - **One shared workspace.** All agents work in the same tree (current checkout,
   another branch, or a fresh worktree — chosen at launch). Writers
   (coding/impl/git) run **one at a time** (the orchestrator sequences them);
