@@ -290,6 +290,32 @@ banner_for() {
     "$role" "$harness" "$model"
 }
 
+# ---- run_banner: a styled header printed in the pane right before a dispatched
+# task runs, so a human scanning panes instantly sees WHO is reasoning about WHAT.
+# This is arkestra's own chrome (we own/style it); the worker's native output
+# follows below it, in the CLI's own colors (preserved via the PTY wrapper). The
+# task is truncated to one tidy line.
+run_banner_for() {
+  local role="$1" harness="$2" model="$3" task="$4"
+  local t; t=$(printf '%s' "$task" | tr '\n' ' ' | cut -c1-72)
+  printf '\033[38;5;8m╭─ \033[1;38;5;2m▶ %s\033[0;38;5;8m · \033[38;5;6m%s\033[38;5;8m · %s\n│  \033[38;5;7m%s\033[38;5;8m\n╰─\033[0m\n' \
+    "$role" "$harness" "$model" "$t"
+}
+
+# ---- pty_wrap: emit a command that runs $1 (a shell command STRING) under a
+# pseudo-TTY via script(1), teeing the raw typescript to $2. The PTY makes each
+# CLI think it's interactive, so it keeps its native COLORS/formatting in the pane
+# instead of falling back to the de-colored "piped" mode. script's flags differ by
+# OS (BSD vs util-linux), so we branch. Exit code of the inner command propagates.
+#   $1 = command string   $2 = raw-typescript file path (already shquoted by caller)
+pty_wrap() {
+  local cmd="$1" rawfile="$2"
+  case "$(uname -s)" in
+    Darwin|*BSD) echo "script -q $rawfile bash -c $(shquote "$cmd")" ;;   # BSD: file then command
+    *)           echo "script -q -e -c $(shquote "$cmd") $rawfile" ;;     # util-linux: -e returns child code, -c command, file last
+  esac
+}
+
 # ---- order a want-list by PRIORITY, drop unused, no gaps ----
 order_roles() { local want=" $* " out=""; for p in $PRIORITY; do
   case "$want" in *" $p "*) out="$out $p";; esac; done; echo $out; }
@@ -538,25 +564,38 @@ COMMIT RULE (follow exactly; do NOT think, just apply):
 
 When done, print a final line starting with SUMMARY: that states in <=15 words what you changed or found."
   local cmd; cmd=$(worker_cmd "$harness" "$model" "$ftask")
-  rm -f "$out/$role.done" "$out/$role.out"
+  rm -f "$out/$role.done" "$out/$role.out" "$out/$role.out.raw"
   # capture full output to <role>.out; write structured <role>.done:
   #   line1 = exit code   line2 = SUMMARY (the worker's summary line, or last line)
   # Orchestrator reads .done (tiny); opens .out only when it needs detail.
-  local d="$out/$role.done" o="$out/$role.out"
+  local d="$out/$role.done" o="$out/$role.out" oraw="$out/$role.out.raw"
+  # Show arkestra's styled header in the pane, then run the worker UNDER A PTY
+  # (pty_wrap → script) so the CLI keeps its NATIVE COLORS live in the pane. script
+  # tees a raw typescript to $oraw AND echoes it to the pane (its normal behavior).
+  # After the worker exits we de-ANSI/de-CR $oraw → $o so the orchestrator (and the
+  # SUMMARY grep) read CLEAN text, while the human keeps full color in the pane.
+  run_banner_for "$role" "$harness" "$model" "$task" > "$out/.runhdr-$role"
+  local wrapped; wrapped=$(pty_wrap "$cmd 2>&1" "$(shquote "$oraw")")
   # run capture logic in bash explicitly (pane shell may be zsh; PIPESTATUS is bash).
-  # Guard: if the watchdog already wrote a 124 (stall/cap), a late-finishing worker
-  # must NOT clobber it with a stale success — first writer wins.
-  local cap="$cmd 2>&1 | tee $(shquote "$o"); ec=\${PIPESTATUS[0]}; [ -f $(shquote "$d") ] || { echo \$ec; (grep -m1 '^SUMMARY:' $(shquote "$o") || tail -n1 $(shquote "$o")) | sed 's/^SUMMARY: *//'; } > $(shquote "$d")"
-  tmux send-keys -t "$pane" "bash -c $(shquote "$cap"); echo '[$role done -> .done]'" Enter
+  # ESC built at runtime: BSD sed has no \x1b. Guard: if the watchdog already wrote a
+  # 124 (stall/cap), a late-finishing worker must NOT clobber it — first writer wins.
+  # Strip, in order: CSI color/cursor escapes; carriage returns; backspace/EOT
+  # bytes; and BSD script's leading literal "^D" session marker. Leaves clean text.
+  local cap="ESC=\$(printf '\\033'); $wrapped; ec=\$?; \
+sed -E \"s/\${ESC}\\[[0-9;]*[a-zA-Z]//g; s/\$(printf '\\r')//g; s/[\$(printf '\\010\\004')]//g; 1s/^\\^D//\" $(shquote "$oraw") > $(shquote "$o") 2>/dev/null; \
+[ -f $(shquote "$d") ] || { echo \$ec; (grep -m1 '^SUMMARY:' $(shquote "$o") || tail -n1 $(shquote "$o")) | sed 's/^SUMMARY: *//'; } > $(shquote "$d")"
+  tmux send-keys -t "$pane" "clear; cat $(shquote "$out/.runhdr-$role"); bash -c $(shquote "$cap"); echo '[$role done -> .done]'" Enter
 
   # WATCHDOG: even with auto-approve flags, a worker can hang (a prompt the flag
   # failed to suppress, a deadlock, a stuck network call) — then .done never appears
   # and the orchestrator waits forever. Two complementary triggers, whichever hits
   # first writes a 124 sentinel so `wait` returns and the orchestrator can escalate:
-  #   STALL — .out stopped growing for ARKESTRA_STALL seconds. A live worker streams
-  #           narration/diffs through `tee`, so a silent .out == stuck. This catches
-  #           a hang FAST (default 90s) without waiting out the full hard cap, and
-  #           without false-positives on a slow-but-working task (it keeps emitting).
+  #   STALL — the live typescript (.out.raw, written by script during the run)
+  #           stopped growing for ARKESTRA_STALL seconds. A live worker streams
+  #           narration/diffs, so a silent raw file == stuck. This catches a hang
+  #           FAST (default 90s) without waiting out the full hard cap, and without
+  #           false-positives on a slow-but-working task (it keeps emitting). NB: we
+  #           watch .out.raw (grows live), not .out (written only after exit).
   #   HARD  — absolute wall-clock cap (ARKESTRA_TIMEOUT). Backstop for the rare case
   #           a wedged worker keeps dribbling output forever.
   local hard="${ARKESTRA_TIMEOUT:-300}"   # seconds, absolute cap; env-overridable
@@ -565,7 +604,7 @@ When done, print a final line starting with SUMMARY: that states in <=15 words w
     last_sz=-1; last_change=$(date +%s); fired=0
     while [ ! -f "$d" ]; do
       now=$(date +%s)
-      sz=$(wc -c < "$o" 2>/dev/null | tr -d ' '); sz="${sz:-0}"
+      sz=$(wc -c < "$oraw" 2>/dev/null | tr -d ' '); sz="${sz:-0}"
       if [ "$sz" != "$last_sz" ]; then last_sz="$sz"; last_change="$now"; fi
       if [ "$(( now - last_change ))" -ge "$stall" ]; then
         [ -f "$d" ] || printf '124\nSTALL: no output for %ss (worker hung or blocked on a prompt)\n' "$stall" > "$d"

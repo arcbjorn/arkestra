@@ -81,8 +81,10 @@ dispatches the right agents.
   **delegates** via `tools agents dispatch <role> "<task>"`, waits for each
   worker's sentinel, reviews the diff, and commits.
 - **Workers run headless** with auto-approved permissions (never block on a
-  prompt). On completion each writes `.agent-out/<role>.done` — line 1 = exit
-  code, line 2 = a one-line summary. Full output is in `.agent-out/<role>.out`.
+  prompt), under a pseudo-TTY so each CLI keeps its **native colors/formatting**
+  live in the pane (easy to follow the reasoning). On completion each writes
+  `.agent-out/<role>.done` — line 1 = exit code, line 2 = a one-line summary.
+  Full output is in `.agent-out/<role>.out` (de-ANSI'd, clean for tooling).
   A watchdog writes a failure sentinel (exit 124) if a worker hangs — detected
   early by an output **stall** (`.out` stops growing for `ARKESTRA_STALL`s,
   default 90) or an absolute `ARKESTRA_TIMEOUT` cap (default 300s). On a hang it
