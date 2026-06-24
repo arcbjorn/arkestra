@@ -77,7 +77,7 @@ dispatches the right agents.
 | logs   | agy         | log / code investigation      |
 | git    | pi          | git operations                |
 
-Any role can run on any harness (codex/opencode/pi/agy) — see below.
+Any role can run on any harness (codex/opencode/pi/agy/reasonix) — see below.
 
 ## Configuring models & harnesses
 
@@ -123,6 +123,7 @@ tools agents sessions [name]             # list running teams and attach to one
 tools agents set <role>                  # set harness + model for a role (saved)
 tools agents model <role> [harness] <model>   # hot-swap a LIVE worker's model
 tools agents dispatch <role> "<task>"    # (the orchestrator uses this)
+tools agents wait <role>                 # (orchestrator) block on a worker's result
 tools agents stop [--all] [--keep-out]   # stop a team (picks which if several)
 tools agents install                     # check/install deps (macOS + Arch/Linux)
 tools agents uninstall                   # remove arkestra's own files
@@ -131,8 +132,24 @@ tools agents uninstall                   # remove arkestra's own files
 ## Requirements
 
 `tmux`, `claude` (orchestrator), plus the agent CLIs for the roles you use
-(`codex`, `opencode`, `pi`, `agy`), and `gum` for the nicest UI (falls back to
-plain prompts without it). Run `tools agents install` to check.
+(`codex`, `opencode`, `pi`, `agy`, `reasonix`), and `gum` for the nicest UI
+(falls back to plain prompts without it). Run `tools agents install` to check.
 
 Written to run on macOS (bash 3.2) and Arch/Linux. See `CONFIG-SNAPSHOT.md` for
 how each CLI's active model is detected.
+
+## CLIs used
+
+arkestra orchestrates these external CLIs — install the ones you need via their
+own docs (`tools agents install` checks what's present):
+
+| CLI        | role               | website                                              |
+|------------|--------------------|------------------------------------------------------|
+| `claude`   | orchestrator       | https://docs.claude.com/claude-code                  |
+| `codex`    | arch (default)     | https://github.com/openai/codex                      |
+| `opencode` | coding (default)   | https://opencode.ai                                  |
+| `pi`       | impl/git (default) | https://pi.dev                                       |
+| `agy`      | logs (default)     | https://antigravity.google                           |
+| `reasonix` | any role           | https://github.com/esengine/deepseek-reasonix        |
+| `tmux`     | pane multiplexer   | https://github.com/tmux/tmux                         |
+| `gum`      | TUI (optional)     | https://github.com/charmbracelet/gum                 |
