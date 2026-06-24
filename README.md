@@ -19,6 +19,30 @@ agents, reviews their work, and integrates. Invoked as `tools agents`.
 └─────────────────────────┴─ git     (pi)       ┘
 ```
 
+How one task flows — the orchestrator never touches the work, only the result:
+
+```
+  orchestrator (Claude)                 worker pane (headless)
+        │
+        │   dispatch <role> "task"           ┌────────────────────┐
+        ├───────────────────────────────────▶│  runs the CLI      │
+        │                                     │  streams → .out    │
+        │   wait <role>                       │                    │
+        │   (blocks — no polling,    ┌───◀────┤  writes .done      │
+        │    no token burn)          │        │  (exit + summary)  │
+        ▼                            │        └─────────┬──────────┘
+   ┌──────────┐                      │                  │ silent?
+   │  .done   │◀─────────────────────┘                  ▼
+   └────┬─────┘                                  ┌──────────────┐
+        │                                        │  watchdog    │
+   exit 0 ──▶ read summary · diff --stat ·       │  stall 90s   │
+        │     integrate · next task              │  cap   300s  │
+        │                                        └──────┬───────┘
+   ≠0 / 124 ──▶ HALT · report · never DIY               │ hung → write 124
+        ▲                                               │ + reclaim pane
+        └───────────────────────────────────────────────┘  (SIGINT → respawn)
+```
+
 <details>
 <summary><b>Screenshots</b> — a 5-agent team across three windows</summary>
 
