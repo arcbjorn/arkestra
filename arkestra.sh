@@ -274,10 +274,11 @@ worker_cmd() {
     opencode) echo "opencode run --dangerously-skip-permissions -m $m $t";;
     pi)       echo "pi --approve --model $m -p $t";;
     agy)      echo "agy --dangerously-skip-permissions --model $m -p $t";;
-    reasonix) # --dangerously-skip-permissions is a GLOBAL flag: it MUST precede the
-              # `run` subcommand (Go flag package; run rejects it otherwise). `run`
-              # executes one task and exits; needs a TTY (it has one in its pane).
-              echo "reasonix --dangerously-skip-permissions run --model $m $t";;
+    reasonix) # `run` executes one task and exits, already non-interactive and
+              # auto-approving tools. Any GLOBAL flag before `run` (e.g.
+              # --dangerously-skip-permissions / --yolo) instead launches the
+              # interactive UI, so pass nothing but `run`.
+              echo "reasonix run --model $m $t";;
     *)        echo "$harness -p $t";;   # unknown: best-effort headless
   esac
 }
