@@ -597,22 +597,31 @@ sed -E \"s/\${ESC}\\[[0-9;]*[a-zA-Z]//g; s/\$(printf '\\r')//g; s/[\$(printf '\\
   #           FAST (default 90s) without waiting out the full hard cap, and without
   #           false-positives on a slow-but-working task (it keeps emitting). NB: we
   #           watch .out.raw (grows live), not .out (written only after exit).
-  #   HARD  — absolute wall-clock cap (ARKESTRA_TIMEOUT). Backstop for the rare case
-  #           a wedged worker keeps dribbling output forever.
-  local hard="${ARKESTRA_TIMEOUT:-300}"   # seconds, absolute cap; env-overridable
+  #   HARD  — wall-clock cap (ARKESTRA_TIMEOUT), but PROGRESS-AWARE: it is a
+  #           backstop for a worker still dribbling output past the cap, NOT a
+  #           guillotine for a healthy verbose one. Past the cap we additionally
+  #           require recent silence (>= stall/2) before firing, so a worker that
+  #           keeps streaming narration/diffs is never killed mid-task — only one
+  #           that has both blown the cap AND gone quiet (the real "wedged" shape).
+  #           Set ARKESTRA_HARD_STRICT=1 to restore the old absolute guillotine.
+  local hard="${ARKESTRA_TIMEOUT:-300}"   # seconds, wall-clock cap; env-overridable
   local stall="${ARKESTRA_STALL:-90}"     # seconds of no .out growth = hung
+  local hard_quiet=$(( stall / 2 )); [ "$hard_quiet" -ge 1 ] || hard_quiet=1
   ( deadline=$(( $(date +%s) + hard ))
     last_sz=-1; last_change=$(date +%s); fired=0
     while [ ! -f "$d" ]; do
       now=$(date +%s)
       sz=$(wc -c < "$oraw" 2>/dev/null | tr -d ' '); sz="${sz:-0}"
       if [ "$sz" != "$last_sz" ]; then last_sz="$sz"; last_change="$now"; fi
-      if [ "$(( now - last_change ))" -ge "$stall" ]; then
+      quiet=$(( now - last_change ))
+      if [ "$quiet" -ge "$stall" ]; then
         [ -f "$d" ] || printf '124\nSTALL: no output for %ss (worker hung or blocked on a prompt)\n' "$stall" > "$d"
         fired=1; break
       fi
-      if [ "$now" -ge "$deadline" ]; then
-        [ -f "$d" ] || printf '124\nTIMEOUT: exceeded %ss hard cap (worker wedged)\n' "$hard" > "$d"
+      # Past the cap: fire only if also quiet (wedged), unless STRICT forces the
+      # old absolute behavior. A still-streaming worker sails past the cap freely.
+      if [ "$now" -ge "$deadline" ] && { [ "${ARKESTRA_HARD_STRICT:-0}" = 1 ] || [ "$quiet" -ge "$hard_quiet" ]; }; then
+        [ -f "$d" ] || printf '124\nTIMEOUT: exceeded %ss cap and quiet %ss (worker wedged)\n' "$hard" "$quiet" > "$d"
         fired=1; break
       fi
       sleep 3
@@ -639,7 +648,7 @@ sed -E \"s/\${ESC}\\[[0-9;]*[a-zA-Z]//g; s/\$(printf '\\r')//g; s/[\$(printf '\\
     fi
   ) >/dev/null 2>&1 &
 
-  printf "${GREEN}dispatched${NC} %s -> %s  ${GRAY}(then: tools agents wait %s; stall %ss, cap %ss)${NC}\n" \
+  printf "${GREEN}dispatched${NC} %s -> %s  ${GRAY}(then: tools agents wait %s; stall %ss, cap %ss progress-aware)${NC}\n" \
     "$role" "$pane" "$role" "$stall" "$hard"
 }
 
