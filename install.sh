@@ -59,11 +59,12 @@ printf "${BLUE}arkestra install${NC}  platform: %s  package manager: %s\n\n" \
 
 # ---- system deps a package manager CAN provide ----
 SYS_MISSING=""
-for dep in tmux git; do
+for dep in tmux git script; do
   if command -v "$dep" >/dev/null 2>&1; then
     case "$dep" in
-      tmux) ver="$(tmux -V 2>/dev/null)" ;;
-      *)    ver="$($dep --version 2>/dev/null | head -1)" ;;
+      tmux)   ver="$(tmux -V 2>/dev/null)" ;;
+      script) ver="ptty wrapper" ;;   # BSD script has no --version; just confirm presence
+      *)      ver="$($dep --version 2>/dev/null | head -1)" ;;
     esac
     ok "$dep ($ver)"
   else miss "$dep"; SYS_MISSING="$SYS_MISSING $dep"; fi
