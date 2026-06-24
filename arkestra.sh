@@ -200,6 +200,11 @@ default_for() { case "$1" in   # $1 = harness
             fi ;;
   pi)       pi_default ;;
   agy)      agy_default ;;
+  reasonix) # default_model from doctor's redacted json (authoritative; resolves
+            # flag>./reasonix.toml>~/.reasonix/config.toml itself). Field is a
+            # provider NAME (what -model takes), e.g. deepseek-flash.
+            reasonix doctor --json 2>/dev/null \
+              | sed -E -n 's/.*"default_model"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' | head -1 ;;
 esac; }
 
 # agy's active model: it stores no user default, but logs the selected model
@@ -231,6 +236,8 @@ valid_for() { local h="$1" m="$2"; [ -n "$m" ] || return 1; case "$h" in   # $1 
   opencode)  opencode models 2>/dev/null | grep -qx "$m" ;;
   pi)        pi --list-models 2>/dev/null | grep -q "${m##*/}" ;;
   agy)       command -v agy >/dev/null 2>&1 ;;
+  reasonix)  reasonix doctor --json 2>/dev/null \
+               | sed -E -n 's/.*"name"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' | grep -qx "$m" ;;
   *)         command -v "$h" >/dev/null 2>&1 ;;                     # unknown harness: just exists
 esac; }
 
@@ -241,6 +248,8 @@ list_models_for() { case "$1" in   # $1 = harness
   pi)        pi --list-models 2>/dev/null | sed -n '2,$p' | awk '{print $1"/"$2}' ;;
   codex)     pi --list-models 2>/dev/null | awk '/openai-codex/{print $2}' ;;  # gpt-5.x ids
   agy)       agy models 2>/dev/null ;;
+  reasonix)  reasonix doctor --json 2>/dev/null \
+               | sed -E -n 's/.*"name"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' ;;  # provider names
 esac; }
 
 suggest_for() { list_models_for "$1" | head -6 | sed 's/^/      /'; }
@@ -262,6 +271,10 @@ worker_cmd() {
     opencode) echo "opencode run --dangerously-skip-permissions -m $m $t";;
     pi)       echo "pi --approve --model $m -p $t";;
     agy)      echo "agy --dangerously-skip-permissions --model $m -p $t";;
+    reasonix) # --dangerously-skip-permissions is a GLOBAL flag: it MUST precede the
+              # `run` subcommand (Go flag package; run rejects it otherwise). `run`
+              # executes one task and exits; needs a TTY (it has one in its pane).
+              echo "reasonix --dangerously-skip-permissions run --model $m $t";;
     *)        echo "$harness -p $t";;   # unknown: best-effort headless
   esac
 }
@@ -665,7 +678,7 @@ cmd_sessions() {
   else exec tmux attach -t "$target"; fi
 }
 
-ALL_HARNESSES="codex opencode pi agy"   # claude excluded (it is the orchestrator)
+ALL_HARNESSES="codex opencode pi agy reasonix"   # claude excluded (it is the orchestrator)
 
 # =====================================================================
 # `tools agents set <role>` — pick HARNESS, then a model from it; save to conf.
