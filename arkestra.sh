@@ -165,6 +165,9 @@ OTHER COMMANDS:
                                          swap a LIVE worker's model (next dispatch
                                          uses it; orchestrator keeps its context).
   tools agents dispatch <role> "<task>"  (the orchestrator delegates a task)
+  tools agents wait <role>               (block until the role's .done; print
+                                         exit code + summary. orchestrator's only
+                                         move after dispatch — no polling.)
   tools agents stop [--all] [--keep-out] stop a team (picks which if several;
                                          --all stops every team). prunes worktrees.
   tools agents install                   check/install deps (macOS + Arch/Linux)
@@ -554,8 +557,41 @@ When done, print a final line starting with SUMMARY: that states in <=15 words w
     [ -f "$d" ] || printf '124\nTIMEOUT: no .done after %ss (worker hung or blocked on a prompt)\n' "$to" > "$d"
   ) >/dev/null 2>&1 &
 
-  printf "${GREEN}dispatched${NC} %s -> %s  ${GRAY}(read .agent-out/%s.done; full in %s.out; timeout %ss)${NC}\n" \
-    "$role" "$pane" "$role" "$role" "$to"
+  printf "${GREEN}dispatched${NC} %s -> %s  ${GRAY}(then: tools agents wait %s; timeout %ss)${NC}\n" \
+    "$role" "$pane" "$role" "$to"
+}
+
+# =====================================================================
+# `tools agents wait <role>` — BLOCK until the role's .done exists, then print
+# its two lines and exit with the worker's own exit code. This is the
+# orchestrator's ONE move after dispatch: a single blocking call instead of a
+# poll loop in Claude's context (which burns tokens re-reading state). The
+# dispatch watchdog guarantees a .done appears within the timeout, so this can
+# never hang forever. Output is deliberately tiny and fixed-format.
+#   exit 0  -> success   nonzero -> the worker failed   124 -> timed out/hung
+# =====================================================================
+cmd_wait() {
+  local role="${1:-}"
+  [ -n "$role" ] || die "wait <role>"
+  local repo; repo=$(git rev-parse --show-toplevel 2>/dev/null) || die "not in a git repo"
+  local d="$repo/.agent-out/$role.done"
+  # PANES.md confirms the role is on this team; otherwise there's nothing to wait on.
+  awk -v r="$role" '$1==r{f=1} END{exit !f}' "$repo/.agent-out/PANES.md" 2>/dev/null \
+    || die "role '$role' not on the running team (no $role line in PANES.md)"
+  # Block in this subprocess — NOT in the orchestrator's context. The watchdog
+  # writes a 124 sentinel if the worker hangs, so this loop is bounded.
+  while [ ! -f "$d" ]; do sleep 2; done
+  local ec sum
+  ec=$(sed -n '1p' "$d"); sum=$(sed -n '2p' "$d")
+  case "$ec" in
+    0)   printf "${GREEN}✓ %s done${NC}  %s\n" "$role" "$sum" ;;
+    124) printf "${RED}✗ %s TIMED OUT/HUNG${NC}  %s\n" "$role" "$sum" >&2
+         printf "  ${YELLOW}↳ HALT: do NOT do this work yourself. Report it; inspect .agent-out/%s.out only if needed.${NC}\n" "$role" >&2 ;;
+    *)   printf "${RED}✗ %s FAILED (exit %s)${NC}  %s\n" "$role" "$ec" "$sum" >&2
+         printf "  ${YELLOW}↳ HALT: do NOT do this work yourself. Report it; inspect .agent-out/%s.out only if needed.${NC}\n" "$role" >&2 ;;
+  esac
+  # exit code mirrors the worker so a caller (or the orchestrator) can branch on it.
+  [ "$ec" = 0 ] && return 0 || return "${ec:-1}"
 }
 
 # =====================================================================
@@ -724,6 +760,7 @@ main() {
     -h|--help|help) usage; exit 0 ;;
     set) shift; cmd_set "$@"; exit 0 ;;
     dispatch) shift; cmd_dispatch "$@"; exit 0 ;;
+    wait) shift; cmd_wait "$@" && exit 0; exit $? ;;
     model) shift; cmd_model "$@"; exit 0 ;;
     stop) shift; cmd_stop "$@"; exit 0 ;;
     sessions|ls|attach) shift; cmd_sessions "$@"; exit 0 ;;
