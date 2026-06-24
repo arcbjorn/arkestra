@@ -59,7 +59,9 @@ dispatches the right agents.
 - **Workers run headless** with auto-approved permissions (never block on a
   prompt). On completion each writes `.agent-out/<role>.done` — line 1 = exit
   code, line 2 = a one-line summary. Full output is in `.agent-out/<role>.out`.
-  A watchdog writes a failure sentinel (exit 124) if a worker hangs.
+  A watchdog writes a failure sentinel (exit 124) if a worker hangs — detected
+  early by an output **stall** (`.out` stops growing for `ARKESTRA_STALL`s,
+  default 90) or an absolute `ARKESTRA_TIMEOUT` cap (default 300s).
 - **One shared workspace.** All agents work in the same tree (current checkout,
   another branch, or a fresh worktree — chosen at launch). Writers
   (coding/impl/git) run **one at a time** (the orchestrator sequences them);

@@ -544,21 +544,43 @@ When done, print a final line starting with SUMMARY: that states in <=15 words w
   # Orchestrator reads .done (tiny); opens .out only when it needs detail.
   local d="$out/$role.done" o="$out/$role.out"
   # run capture logic in bash explicitly (pane shell may be zsh; PIPESTATUS is bash).
-  local cap="$cmd 2>&1 | tee $(shquote "$o"); ec=\${PIPESTATUS[0]}; { echo \$ec; (grep -m1 '^SUMMARY:' $(shquote "$o") || tail -n1 $(shquote "$o")) | sed 's/^SUMMARY: *//'; } > $(shquote "$d")"
+  # Guard: if the watchdog already wrote a 124 (stall/cap), a late-finishing worker
+  # must NOT clobber it with a stale success — first writer wins.
+  local cap="$cmd 2>&1 | tee $(shquote "$o"); ec=\${PIPESTATUS[0]}; [ -f $(shquote "$d") ] || { echo \$ec; (grep -m1 '^SUMMARY:' $(shquote "$o") || tail -n1 $(shquote "$o")) | sed 's/^SUMMARY: *//'; } > $(shquote "$d")"
   tmux send-keys -t "$pane" "bash -c $(shquote "$cap"); echo '[$role done -> .done]'" Enter
 
-  # WATCHDOG: even with auto-approve flags, if a worker hangs (or a flag fails to
-  # suppress a prompt) the .done would never appear and the orchestrator would wait
-  # forever. Background watchdog: if .done is absent after DISPATCH_TIMEOUT, write a
-  # failure sentinel so the orchestrator sees it failed and can re-dispatch/escalate.
-  local to="${ARKESTRA_TIMEOUT:-600}"   # seconds; override via env
-  ( e=$(( $(date +%s) + to ))
-    while [ ! -f "$d" ] && [ "$(date +%s)" -lt "$e" ]; do sleep 3; done
-    [ -f "$d" ] || printf '124\nTIMEOUT: no .done after %ss (worker hung or blocked on a prompt)\n' "$to" > "$d"
+  # WATCHDOG: even with auto-approve flags, a worker can hang (a prompt the flag
+  # failed to suppress, a deadlock, a stuck network call) — then .done never appears
+  # and the orchestrator waits forever. Two complementary triggers, whichever hits
+  # first writes a 124 sentinel so `wait` returns and the orchestrator can escalate:
+  #   STALL — .out stopped growing for ARKESTRA_STALL seconds. A live worker streams
+  #           narration/diffs through `tee`, so a silent .out == stuck. This catches
+  #           a hang FAST (default 90s) without waiting out the full hard cap, and
+  #           without false-positives on a slow-but-working task (it keeps emitting).
+  #   HARD  — absolute wall-clock cap (ARKESTRA_TIMEOUT). Backstop for the rare case
+  #           a wedged worker keeps dribbling output forever.
+  local hard="${ARKESTRA_TIMEOUT:-300}"   # seconds, absolute cap; env-overridable
+  local stall="${ARKESTRA_STALL:-90}"     # seconds of no .out growth = hung
+  ( deadline=$(( $(date +%s) + hard ))
+    last_sz=-1; last_change=$(date +%s)
+    while [ ! -f "$d" ]; do
+      now=$(date +%s)
+      sz=$(wc -c < "$o" 2>/dev/null | tr -d ' '); sz="${sz:-0}"
+      if [ "$sz" != "$last_sz" ]; then last_sz="$sz"; last_change="$now"; fi
+      if [ "$(( now - last_change ))" -ge "$stall" ]; then
+        [ -f "$d" ] || printf '124\nSTALL: no output for %ss (worker hung or blocked on a prompt)\n' "$stall" > "$d"
+        break
+      fi
+      if [ "$now" -ge "$deadline" ]; then
+        [ -f "$d" ] || printf '124\nTIMEOUT: exceeded %ss hard cap (worker wedged)\n' "$hard" > "$d"
+        break
+      fi
+      sleep 3
+    done
   ) >/dev/null 2>&1 &
 
-  printf "${GREEN}dispatched${NC} %s -> %s  ${GRAY}(then: tools agents wait %s; timeout %ss)${NC}\n" \
-    "$role" "$pane" "$role" "$to"
+  printf "${GREEN}dispatched${NC} %s -> %s  ${GRAY}(then: tools agents wait %s; stall %ss, cap %ss)${NC}\n" \
+    "$role" "$pane" "$role" "$stall" "$hard"
 }
 
 # =====================================================================
