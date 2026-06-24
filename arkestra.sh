@@ -562,21 +562,41 @@ When done, print a final line starting with SUMMARY: that states in <=15 words w
   local hard="${ARKESTRA_TIMEOUT:-300}"   # seconds, absolute cap; env-overridable
   local stall="${ARKESTRA_STALL:-90}"     # seconds of no .out growth = hung
   ( deadline=$(( $(date +%s) + hard ))
-    last_sz=-1; last_change=$(date +%s)
+    last_sz=-1; last_change=$(date +%s); fired=0
     while [ ! -f "$d" ]; do
       now=$(date +%s)
       sz=$(wc -c < "$o" 2>/dev/null | tr -d ' '); sz="${sz:-0}"
       if [ "$sz" != "$last_sz" ]; then last_sz="$sz"; last_change="$now"; fi
       if [ "$(( now - last_change ))" -ge "$stall" ]; then
         [ -f "$d" ] || printf '124\nSTALL: no output for %ss (worker hung or blocked on a prompt)\n' "$stall" > "$d"
-        break
+        fired=1; break
       fi
       if [ "$now" -ge "$deadline" ]; then
         [ -f "$d" ] || printf '124\nTIMEOUT: exceeded %ss hard cap (worker wedged)\n' "$hard" > "$d"
-        break
+        fired=1; break
       fi
       sleep 3
     done
+    # If WE declared the hang (not a clean finish), reclaim the pane: SIGINT the
+    # stuck process so the pane's shell survives and returns to its idle banner —
+    # otherwise a zombie worker would eat the next dispatch's keystrokes. The 124
+    # sentinel is already written (first-writer guard), so a worker that was a
+    # hair from finishing loses nothing. Escalate to respawn only if C-c doesn't
+    # land the pane back at idle within a couple seconds.
+    if [ "$fired" = 1 ]; then
+      tmux send-keys -t "$pane" C-c 2>/dev/null || true
+      sleep 2
+      # is the pane back at its shell? pane_current_command is the foreground proc.
+      cur=$(tmux display -p -t "$pane" '#{pane_current_command}' 2>/dev/null)
+      case "$cur" in
+        bash|zsh|sh|-bash|-zsh|"") : ;;   # idle shell -> reusable, leave it
+        *)  # still wedged in a non-shell command -> hard reclaim: respawn the pane
+            # to a fresh idle shell that re-shows the role's banner (same as launch).
+            banner="$out/.banner-$role"
+            tmux respawn-pane -k -t "$pane" \
+              "clear; cat $(shquote "$banner") 2>/dev/null; exec ${SHELL:-/bin/zsh}" 2>/dev/null || true ;;
+      esac
+    fi
   ) >/dev/null 2>&1 &
 
   printf "${GREEN}dispatched${NC} %s -> %s  ${GRAY}(then: tools agents wait %s; stall %ss, cap %ss)${NC}\n" \
