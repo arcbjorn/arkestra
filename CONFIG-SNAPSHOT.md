@@ -36,3 +36,18 @@ NOT the `"model"` field in `opencode.jsonc` (that is a stale profile). arkestra
 reads model.json for the coding role.
 
 Regenerate this table by reading each CLI's config / `models` output on the day.
+
+## Active overrides — `agents.conf` (not empty on this machine)
+
+The table above is the *empty-config* baseline. This machine has deliberate
+per-role overrides saved in `~/.config/arkestra/agents.conf`, which take
+precedence over the CLI defaults (layer 2 beats layer 3):
+
+| role   | harness  | model                       | why |
+|--------|----------|-----------------------------|-----|
+| coding | reasonix | `deepseek-pro`              | run reasonix as the main coding agent |
+| git    | opencode | `opencode/mimo-v2.5-free`   | free model for the cheap, mechanical git role |
+
+Set/change these with `tools agents set <role>` (the picker lists each CLI's real
+models, so you can't typo the provider). A `--<role> <model>` flag still overrides
+these for a single session without touching the file.
