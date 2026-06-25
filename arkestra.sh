@@ -27,8 +27,8 @@
 # bash 3.2 safe: no associative arrays, no \s in sed, no `timeout`.
 set -eu
 
-SESSION="arkestra"   # resolved per-launch to a unique arkestra-<name> (see resolve_session)
-SESSION_PREFIX="arkestra"
+SESSION="arkestra"   # resolved per-launch to a unique <repo>-<name> (see resolve_session)
+SESSION_PREFIX="arkestra"   # set per-run to the current repo's name (see set_prefix)
 RED='\033[38;5;1m'; GREEN='\033[38;5;2m'; YELLOW='\033[38;5;3m'
 BLUE='\033[38;5;4m'; MAGENTA='\033[38;5;5m'; CYAN='\033[38;5;6m'
 WHITE='\033[38;5;7m'; GRAY='\033[38;5;8m'; B='\033[1m'; DIM='\033[2m'; NC='\033[0m'
@@ -108,14 +108,22 @@ EOF
   mv "$tmp" "$CONF"
 }
 
-# ---- running arkestra teams (tmux sessions named arkestra-*) ----
+# set_prefix — scope session names to the current repo. tmux session names allow
+# no '.'/':', so sanitize the basename; fall back to "arkestra" outside a repo.
+set_prefix() {
+  local repo; repo=$(git rev-parse --show-toplevel 2>/dev/null) || return 0
+  local b; b=$(basename "$repo" | tr '.:' '__')
+  [ -n "$b" ] && SESSION_PREFIX="$b"
+}
+
+# ---- running teams for this repo (tmux sessions named <repo>-*) ----
 list_teams() { tmux list-sessions -F '#{session_name}' 2>/dev/null | grep "^${SESSION_PREFIX}-" || true ; }
 
-# auto_name -> lowest free arkestra-<N>
+# auto_name -> lowest free <repo>-<N>
 auto_name() { local i=1; while tmux has-session -t "${SESSION_PREFIX}-$i" 2>/dev/null; do i=$((i+1)); done; echo "$i"; }
 
 # resolve_session [name] -> echoes a UNIQUE session name. Given a name, uses
-# arkestra-<name> (must be free). Otherwise prompts (default = next free number).
+# <repo>-<name> (must be free). Otherwise prompts (default = next free number).
 resolve_session() {
   local want="$1"
   if [ -z "$want" ]; then
@@ -153,10 +161,11 @@ The orchestrator (Claude) is always launched as pane 0; you attach to watch.
 
   --start    attach (or switch-client, if already in tmux) right after launch.
 
-Run MULTIPLE teams at once (each is its own tmux session). You're prompted for a
-team name at launch (Enter keeps the auto number); or pass --name to skip it:
-  tools agents --name api coding impl     # session arkestra-api
-  tools agents arch logs                   # prompts; default arkestra-1, -2…
+Run MULTIPLE teams at once (each is its own tmux session, named <repo>-<team>).
+You're prompted for a team name at launch (Enter keeps the auto number); or pass
+--name to skip it:
+  tools agents --name api coding impl     # session <repo>-api
+  tools agents arch logs                   # prompts; default <repo>-1, -2…
 
 OTHER COMMANDS:
   tools agents sessions [name]           list running teams and attach to one
@@ -847,6 +856,7 @@ cmd_set() {
 }
 
 main() {
+  set_prefix   # scope session names to the current repo (before any subcommand)
   case "${1:-}" in
     -h|--help|help) usage; exit 0 ;;
     set) shift; cmd_set "$@"; exit 0 ;;
@@ -882,7 +892,7 @@ main() {
   local roles; roles=$(order_roles $want)
   [ -n "$roles" ] || die "no valid roles"
 
-  SESSION=$(resolve_session "$name")         # unique arkestra-<name|N>; no collision
+  SESSION=$(resolve_session "$name")         # unique <repo>-<name|N>; no collision
   local ws; ws=$(pick_workspace "$repo") || exit $?
   probe "$roles" || exit $?
   launch "$roles" "$repo" "$ws"
