@@ -126,6 +126,7 @@ set_prefix() {
 
 # ---- running teams for this repo (tmux sessions named <repo>-*) ----
 list_teams() { tmux list-sessions -F '#{session_name}' 2>/dev/null | grep "^${SESSION_PREFIX}-" || true ; }
+list_sessions() { tmux list-sessions -F '#{session_name}' 2>/dev/null || true ; }
 
 # auto_name -> lowest free <repo>-<N>
 auto_name() { local i=1; while tmux has-session -t "${SESSION_PREFIX}-$i" 2>/dev/null; do i=$((i+1)); done; echo "$i"; }
@@ -205,8 +206,9 @@ OTHER COMMANDS:
   @ wait <role>               (block until the role's .done; print
                                          exit code + summary. orchestrator's only
                                          move after dispatch — no polling.)
-  @ stop [--all] [--keep-out] stop a team (picks which if several;
-                                         --all stops every team). prunes worktrees.
+  @ stop [--all] [--keep-out] stop a tmux session (picks which if several;
+                                         --all stops every tmux session).
+                                         prunes arkestra worktrees.
   @ install                   check/install deps (macOS + Arch/Linux)
   @ uninstall                 remove arkestra's own files (config dir)
 EOF
@@ -782,55 +784,82 @@ cmd_model() {
 }
 
 # =====================================================================
-# `arkestra stop` — tear down the running team: kill the tmux session,
-# prune any worktrees it created, and clear .agent-out scratch (with --keep-out
-# to leave sentinels/PANES.md for inspection).
+# `arkestra stop` — list all tmux sessions, stop the chosen target, then prune
+# arkestra worktrees and .agent-out for any stopped arkestra session
+# (--keep-out leaves sentinels/PANES.md for inspection).
 # =====================================================================
+session_arkestra_repos() {
+  local t="$1" panes
+  panes=$(tmux list-panes -t "$t" -F '#{pane_id}' 2>/dev/null || true)
+  tmux list-panes -t "$t" -F '#{pane_current_path}' 2>/dev/null | while IFS= read -r path; do
+    local repo pane
+    repo=$(git -C "$path" rev-parse --show-toplevel 2>/dev/null || true)
+    [ -n "$repo" ] || continue
+    [ -f "$repo/.agent-out/PANES.md" ] || continue
+    for pane in $panes; do
+      awk -v p="pane=$pane" '{for (i=1; i<=NF; i++) if ($i==p) found=1} END{exit !found}' \
+        "$repo/.agent-out/PANES.md" 2>/dev/null && { printf '%s\n' "$repo"; break; }
+    done
+  done | sort -u
+}
+
+cleanup_arkestra_repo() {
+  local repo="$1" keep_out="$2"
+  [ -n "$repo" ] || return 0
+
+  # remove the fresh worktrees arkestra creates (.worktrees/agents-*) and their
+  # throwaway agents/* branches.
+  if [ -d "$repo/.worktrees" ]; then
+    local wt
+    for wt in "$repo"/.worktrees/agents-*; do
+      [ -d "$wt" ] && git -C "$repo" worktree remove --force "$wt" 2>/dev/null
+    done
+    git -C "$repo" worktree prune 2>/dev/null
+    rmdir "$repo/.worktrees" 2>/dev/null || true
+  fi
+  local br
+  for br in $(git -C "$repo" for-each-ref --format='%(refname:short)' refs/heads/agents 2>/dev/null); do
+    git -C "$repo" branch -D "$br" 2>/dev/null
+  done
+  if [ "$keep_out" -eq 0 ] && [ -d "$repo/.agent-out" ]; then
+    rm -rf "$repo/.agent-out" && printf "  ${GRAY}cleared %s/.agent-out${NC}\n" "$repo"
+  fi
+}
+
 cmd_stop() {
   local keep_out=0 all=0
   while [ "$#" -gt 0 ]; do case "$1" in
     --keep-out) keep_out=1 ;; --all) all=1 ;;
   esac; shift; done
 
-  local teams; teams=$(list_teams)
-  if [ -z "$teams" ]; then printf "  ${GRAY}no running teams.${NC}\n" >&2; return 0; fi
+  local sessions; sessions=$(list_sessions)
+  if [ -z "$sessions" ]; then printf "  ${GRAY}no running tmux sessions.${NC}\n" >&2; return 0; fi
 
   local targets
   if [ "$all" = 1 ]; then
-    targets="$teams"
-  elif [ "$(printf '%s\n' "$teams" | grep -c .)" = 1 ]; then
-    targets="$teams"                                   # only one running
+    targets="$sessions"
+  elif [ "$(printf '%s\n' "$sessions" | grep -c .)" = 1 ]; then
+    targets="$sessions"                                # only one running
   else
-    ui_title "stop team" "$(printf '%s' "$teams" | tr '\n' ' ')"
-    targets=$(ui_choose "which team to stop? (or --all)" "$teams")
+    ui_title "stop session"
+    local s
+    for s in $sessions; do
+      local win; win=$(tmux list-windows -t "$s" -F '#{window_name}' 2>/dev/null | head -1)
+      ui_kv "$s" "$win"
+    done
+    targets=$(ui_choose "which session to stop? (or --all)" "$sessions")
     [ -n "$targets" ] || { printf "  ${DIM}cancelled.${NC}\n" >&2; return 0; }
   fi
 
+  local repos=""
   local t
   for t in $targets; do
+    repos=$(printf '%s\n%s\n' "$repos" "$(session_arkestra_repos "$t")" | sort -u)
     tmux kill-session -t "$t" 2>/dev/null && printf "  ${GREEN}✓${NC} stopped ${B}%s${NC}\n" "$t" >&2
   done
 
-  local repo; repo=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
-  if [ -n "$repo" ]; then
-    # remove the fresh worktrees arkestra creates (.worktrees/agents-*) and their
-    # throwaway agents/* branches.
-    if [ -d "$repo/.worktrees" ]; then
-      local wt
-      for wt in "$repo"/.worktrees/agents-*; do
-        [ -d "$wt" ] && git -C "$repo" worktree remove --force "$wt" 2>/dev/null
-      done
-      git -C "$repo" worktree prune 2>/dev/null
-      rmdir "$repo/.worktrees" 2>/dev/null || true
-    fi
-    local br
-    for br in $(git -C "$repo" for-each-ref --format='%(refname:short)' refs/heads/agents 2>/dev/null); do
-      git -C "$repo" branch -D "$br" 2>/dev/null
-    done
-    if [ "$keep_out" -eq 0 ] && [ -d "$repo/.agent-out" ]; then
-      rm -rf "$repo/.agent-out" && printf "  ${GRAY}cleared .agent-out${NC}\n"
-    fi
-  fi
+  local repo
+  for repo in $repos; do cleanup_arkestra_repo "$repo" "$keep_out"; done
 }
 
 # =====================================================================
