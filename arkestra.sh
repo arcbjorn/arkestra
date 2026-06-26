@@ -187,7 +187,7 @@ orchestrates (claude default, or codex) — both get the same brief + roster
 through that CLI's native instruction layer.
 
   --orch <claude|codex>  set the orchestrator without the prompt (default claude;
-                         codex runs -a never -s workspace-write).
+                         codex runs -a never -s danger-full-access).
   --start    attach (or switch-client, if already in tmux) right after launch.
 
 Run MULTIPLE teams at once (each is its own tmux session, named <repo>-<team>).
@@ -525,12 +525,13 @@ launch() {
   # Start pane 0 with the chosen orchestrator, both fed the SAME composed brief
   # (static ORCHESTRATOR.md + this team's roster) via each CLI's native
   # instruction surface. Claude has a system-prompt file flag. Codex runs in
-  # auto mode (-a never) while staying workspace-sandboxed, and uses
+  # auto mode (-a never) with full filesystem access so it can control the
+  # tmux socket for dispatch/model/stop, and uses
   # invocation-scoped developer_instructions so the TUI stays idle for the
   # human's actual first task instead of arkestra's control brief.
   local orch_cmd
   case "$ORCH" in
-    codex)  orch_cmd="codex -a never -s workspace-write -c developer_instructions=\"\$(cat $(shquote "$brief"))\"" ;;
+    codex)  orch_cmd="codex -a never -s danger-full-access -c developer_instructions=\"\$(cat $(shquote "$brief"))\"" ;;
     *)      orch_cmd="claude --append-system-prompt-file $(shquote "$brief")" ;;
   esac
 
