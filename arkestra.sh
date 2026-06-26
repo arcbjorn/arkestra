@@ -5,7 +5,7 @@
 #
 # Design (all pieces proven standalone before assembly):
 #   - orchestrator = Claude (default) or Codex, always left half of window 0;
-#     both get the SAME composed brief + roster (chosen at launch / --orch)
+#     each gets a composed brief + roster (chosen at launch / --orch)
 #   - workers run HEADLESS (narration + diffs stream to pane, process exits,
 #     writes .agent-out/<role>.done with exit code). Zoom any pane: Ctrl-b z.
 #   - all workers share ONE workspace (picked at launch); the orchestrator
@@ -182,7 +182,7 @@ SET a persistent per-role default (picker lists the CLI's real models):
 Model resolution per role: --flag  >  agents.conf  >  the CLI's own default.
 Bare `@` probes DEFAULT roles (coding arch git) and confirms.
 The orchestrator runs as pane 0; you attach to watch. At launch you pick who
-orchestrates (claude default, or codex) — both get the same brief + roster
+orchestrates (claude default, or codex). Each gets a tailored brief + roster
 through that CLI's native instruction layer.
 
   --orch <claude|codex>  set the orchestrator without the prompt (default claude;
@@ -506,12 +506,18 @@ launch() {
   : > "$out/PANES.md"   # role -> pane map the orchestrator reads to dispatch
 
   # ROSTER: the orchestrator must dispatch ONLY to roles actually on this team.
-  # ORCHESTRATOR.md lists every possible role; the roster scopes it to what launched.
-  # We compose the static brief + roster into ONE per-team file, fed to whichever
-  # orchestrator launches (see below). One file avoids multiline shell-quoting,
-  # and claude rejects mixing an inline prompt with the file flag.
-  local src="$(cd "$(dirname "$0")" && pwd)/ORCHESTRATOR.md"
+  # Each orchestrator gets its own brief shape; Claude keeps the original strict
+  # delegation prompt, while Codex gets a Codex-specific lead/reviewer prompt.
+  # We compose the selected brief + roster into ONE per-team file. One file
+  # avoids multiline shell-quoting, and claude rejects mixing an inline prompt
+  # with the file flag.
+  local root; root="$(cd "$(dirname "$0")" && pwd)"
+  local src="$root/ORCHESTRATOR.md"
   local brief="$out/ORCHESTRATOR.md"
+  if [ "$ORCH" = codex ] && [ -f "$root/ORCHESTRATOR-CODEX.md" ]; then
+    src="$root/ORCHESTRATOR-CODEX.md"
+    brief="$out/ORCHESTRATOR-CODEX.md"
+  fi
   # {{INVOKE}} in the brief -> the command this install answers to (arkestra / ark),
   # so the orchestrator dispatches via a command that exists here.
   [ -f "$src" ] && sed "s|{{INVOKE}}|$INVOKE|g" "$src" > "$brief" || : > "$brief"
@@ -525,8 +531,8 @@ launch() {
     printf 'If a task needs a role not listed above, tell the user it is not on this team (do NOT dispatch it).\n'
   } >> "$brief"
 
-  # Start pane 0 with the chosen orchestrator, both fed the SAME composed brief
-  # (static ORCHESTRATOR.md + this team's roster) via each CLI's native
+  # Start pane 0 with the chosen orchestrator, fed its composed brief
+  # (selected orchestrator brief + this team's roster) via each CLI's native
   # instruction surface. Claude has a system-prompt file flag. Codex runs in
   # auto mode (-a never) with full filesystem access so it can control the
   # tmux socket for dispatch/model/stop, and uses
@@ -534,7 +540,7 @@ launch() {
   # human's actual first task instead of arkestra's control brief.
   local orch_cmd
   case "$ORCH" in
-    codex)  orch_cmd="codex -a never -s danger-full-access -c developer_instructions=\"\$(cat $(shquote "$brief"))\"" ;;
+    codex)  orch_cmd="ARKESTRA_ORCH=codex codex -a never -s danger-full-access -c developer_instructions=\"\$(cat $(shquote "$brief"))\"" ;;
     *)      orch_cmd="claude --append-system-prompt-file $(shquote "$brief")" ;;
   esac
 
@@ -742,9 +748,17 @@ cmd_wait() {
   case "$ec" in
     0)   printf "${GREEN}✓ %s done${NC}  %s\n" "$role" "$sum" ;;
     124) printf "${RED}✗ %s TIMED OUT/HUNG${NC}  %s\n" "$role" "$sum" >&2
-         printf "  ${YELLOW}↳ HALT: do NOT do this work yourself. Report it; inspect .agent-out/%s.out only if needed.${NC}\n" "$role" >&2 ;;
+         if [ "${ARKESTRA_ORCH:-}" = codex ]; then
+           printf "  ${YELLOW}↳ Decide next step: inspect .agent-out/%s.out, retry narrower, swap model, or ask.${NC}\n" "$role" >&2
+         else
+           printf "  ${YELLOW}↳ HALT: do NOT do this work yourself. Report it; inspect .agent-out/%s.out only if needed.${NC}\n" "$role" >&2
+         fi ;;
     *)   printf "${RED}✗ %s FAILED (exit %s)${NC}  %s\n" "$role" "$ec" "$sum" >&2
-         printf "  ${YELLOW}↳ HALT: do NOT do this work yourself. Report it; inspect .agent-out/%s.out only if needed.${NC}\n" "$role" >&2 ;;
+         if [ "${ARKESTRA_ORCH:-}" = codex ]; then
+           printf "  ${YELLOW}↳ Decide next step: inspect .agent-out/%s.out, retry narrower, swap model, or ask.${NC}\n" "$role" >&2
+         else
+           printf "  ${YELLOW}↳ HALT: do NOT do this work yourself. Report it; inspect .agent-out/%s.out only if needed.${NC}\n" "$role" >&2
+         fi ;;
   esac
   # exit code mirrors the worker so a caller (or the orchestrator) can branch on it.
   [ "$ec" = 0 ] && return 0 || return "${ec:-1}"

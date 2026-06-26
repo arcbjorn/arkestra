@@ -84,15 +84,15 @@ dispatches the right agents.
 ## How it works
 
 - **Orchestrator = Claude (default) or Codex**, always pane 0 — pick at launch
-  or with `--orch <claude|codex>`. Both get the same brief + roster through
-  their native instruction surface: Claude via `--append-system-prompt-file`,
+  or with `--orch <claude|codex>`. Each gets a tailored brief + roster through
+  its native instruction surface: Claude via `--append-system-prompt-file`,
   Codex via `-a never -s danger-full-access` plus invocation-scoped
   `developer_instructions`. Codex needs full access as the orchestrator because
-  delegation controls tmux through its socket; Codex workers still run sandboxed
-  with `codex exec -s workspace-write`. Codex is not seeded with a fake first
-  prompt; the pane waits for your actual goal. The orchestrator does NOT edit
-  files; it **delegates** via `arkestra dispatch <role> "<task>"`, waits for
-  each worker's sentinel, reviews the diff, and commits.
+  it inspects/reviews the repo and controls tmux through its socket; Codex
+  workers still run sandboxed with `codex exec -s workspace-write`. Codex is not
+  seeded with a fake first prompt; the pane waits for your actual goal. The
+  orchestrator delegates via `arkestra dispatch <role> "<task>"`, waits for each
+  worker's sentinel, reviews the diff, and commits.
 - **Workers run headless** with auto-approved permissions (never block on a
   prompt), under a pseudo-TTY so each CLI keeps its **native colors/formatting**
   live in the pane (easy to follow the reasoning). On completion each writes
