@@ -409,20 +409,28 @@ probe() {
 # =====================================================================
 pick_workspace() {
   local repo="$1"
-  local cur; cur=$(git -C "$repo" rev-parse --abbrev-ref HEAD 2>/dev/null || echo HEAD)
+  local cur base label
+  cur=$(git -C "$repo" symbolic-ref -q --short HEAD 2>/dev/null || true)
+  if [ -n "$cur" ]; then
+    base="$cur"
+    label="$cur"
+  else
+    base="HEAD"
+    label="detached $(git -C "$repo" rev-parse --short HEAD 2>/dev/null || echo HEAD)"
+  fi
   ui_title "workspace" "all workers share one tree"
 
   # build menu: current branch first, then other branches, then "new worktree".
   # (use printf for newlines — embedded literal newlines in assignments are fragile
   # under set -u and can corrupt the var.) Hide arkestra's throwaway agents/* branches.
-  local opts; opts=$(printf '● %s  (current)\n' "$cur")
+  local opts; opts=$(printf '● %s  (current)\n' "$label")
   local b
   for b in $(git -C "$repo" for-each-ref --format='%(refname:short)' refs/heads 2>/dev/null); do
     [ "$b" = "$cur" ] && continue
     case "$b" in agents/*) continue ;; esac
     opts=$(printf '%s\n○ %s' "$opts" "$b")
   done
-  opts=$(printf '%s\n+ new worktree off %s' "$opts" "$cur")
+  opts=$(printf '%s\n+ new worktree off %s' "$opts" "$label")
 
   local pick; pick=$(ui_choose "where should the team work?" "$opts")
   [ -n "$pick" ] || { echo "$repo"; return; }                # default = current
@@ -430,11 +438,11 @@ pick_workspace() {
     *"(current)") echo "$repo" ;;
     "+ new worktree"*)
         # a worktree needs its OWN branch — two worktrees can't share one (e.g.
-        # 'master' is already checked out here). Branch a fresh one off $cur.
+        # 'master' is already checked out here). Branch a fresh one off $base.
         local wt="$repo/.worktrees/agents-$$" br="agents/$$"
-        git -C "$repo" worktree add -q -b "$br" "$wt" "$cur" >&2 \
+        git -C "$repo" worktree add -q -b "$br" "$wt" "$base" >&2 \
           || die "worktree add failed"
-        ui_ok "fresh worktree ${wt##*/} on branch $br (off $cur)"; echo "$wt" ;;
+        ui_ok "fresh worktree ${wt##*/} on branch $br (off $label)"; echo "$wt" ;;
     "○ "*)  local br="${pick#○ }"; br="${br%% *}"
         git -C "$repo" checkout -q "$br" >&2 || die "checkout '$br' failed"
         ui_ok "checked out $br"; echo "$repo" ;;
