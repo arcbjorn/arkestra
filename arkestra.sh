@@ -197,7 +197,7 @@ You're prompted for a team name at launch (Enter keeps the auto number); or pass
   @ arch logs                   # prompts; default <repo>-1, -2…
 
 OTHER COMMANDS:
-  @ sessions [name]           list running teams and attach to one
+  @ sessions [name]           list running tmux sessions and attach to one
                                          (picks if several; switch-client in tmux).
   @ model <role> [<harness>] <model>
                                          swap a LIVE worker's model (next dispatch
@@ -830,7 +830,7 @@ cleanup_arkestra_repo() {
   fi
 }
 
-session_stop_options() {
+session_options() {
   local sessions="$1" s out=""
   for s in $sessions; do
     local win attached state
@@ -858,7 +858,7 @@ cmd_stop() {
     targets="$sessions"                                # only one running
   else
     ui_title "stop session"
-    targets=$(ui_choose "which session to stop? (or --all)" "$(session_stop_options "$sessions")")
+    targets=$(ui_choose "which session to stop? (or --all)" "$(session_options "$sessions")")
     [ -n "$targets" ] || { printf "  ${DIM}cancelled.${NC}\n" >&2; return 0; }
     targets="${targets%%[[:space:]]*}"
   fi
@@ -875,34 +875,30 @@ cmd_stop() {
 }
 
 # =====================================================================
-# `arkestra sessions` — list running teams and attach to a chosen one.
+# `arkestra sessions` — list running tmux sessions and attach to a chosen one.
 # Inside an existing tmux client we switch-client (attach refuses to nest);
 # from a plain shell, attach. Pass a name to skip the picker.
 # =====================================================================
 cmd_sessions() {
   local want="${1:-}"
-  local teams; teams=$(list_teams)
-  if [ -z "$teams" ]; then printf "  ${GRAY}no running teams.${NC}\n" >&2; return 0; fi
+  local sessions; sessions=$(list_sessions)
+  if [ -z "$sessions" ]; then printf "  ${GRAY}no running tmux sessions.${NC}\n" >&2; return 0; fi
 
   local target=""
   if [ -n "$want" ]; then
-    case "$want" in ${SESSION_PREFIX}-*) target="$want" ;; *) target="${SESSION_PREFIX}-${want}" ;; esac
-    tmux has-session -t "$target" 2>/dev/null || die "no running team '$target'"
-  elif [ "$(printf '%s\n' "$teams" | grep -c .)" = 1 ]; then
-    target="$teams"                                    # only one running
+    target="$want"
+    tmux has-session -t "=$target" 2>/dev/null || die "no tmux session '$target'"
+  elif [ "$(printf '%s\n' "$sessions" | grep -c .)" = 1 ]; then
+    target="$sessions"                                 # only one running
   else
-    ui_title "running teams"
-    local t
-    for t in $teams; do
-      local win; win=$(tmux list-windows -t "$t" -F '#{window_name}' 2>/dev/null | head -1)
-      ui_kv "$t" "$win"
-    done
-    target=$(ui_choose "attach to which team?" "$teams")
+    ui_title "attach session"
+    target=$(ui_choose "attach to which session?" "$(session_options "$sessions")")
     [ -n "$target" ] || { printf "  ${DIM}cancelled.${NC}\n" >&2; return 0; }
+    target="${target%%[[:space:]]*}"
   fi
 
-  if [ -n "${TMUX:-}" ]; then exec tmux switch-client -t "$target"
-  else exec tmux attach -t "$target"; fi
+  if [ -n "${TMUX:-}" ]; then exec tmux switch-client -t "=$target"
+  else exec tmux attach -t "=$target"; fi
 }
 
 ALL_HARNESSES="codex opencode pi agy reasonix"   # claude excluded (it is the orchestrator)
