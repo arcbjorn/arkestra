@@ -86,10 +86,11 @@ dispatches the right agents.
 - **Orchestrator = Claude (default) or Codex**, always pane 0 — pick at launch
   or with `--orch <claude|codex>`. Both get the same brief + roster through
   their native instruction surface: Claude via `--append-system-prompt-file`,
-  Codex via invocation-scoped `developer_instructions`. Codex is not seeded with
-  a fake first prompt; the pane waits for your actual goal. The orchestrator does
-  NOT edit files; it **delegates** via `arkestra dispatch <role> "<task>"`,
-  waits for each worker's sentinel, reviews the diff, and commits.
+  Codex via `-a never -s workspace-write` plus invocation-scoped
+  `developer_instructions`. Codex is not seeded with a fake first prompt; the
+  pane waits for your actual goal. The orchestrator does NOT edit files; it
+  **delegates** via `arkestra dispatch <role> "<task>"`, waits for each worker's
+  sentinel, reviews the diff, and commits.
 - **Workers run headless** with auto-approved permissions (never block on a
   prompt), under a pseudo-TTY so each CLI keeps its **native colors/formatting**
   live in the pane (easy to follow the reasoning). On completion each writes

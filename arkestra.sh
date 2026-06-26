@@ -185,7 +185,8 @@ The orchestrator runs as pane 0; you attach to watch. At launch you pick who
 orchestrates (claude default, or codex) — both get the same brief + roster
 through that CLI's native instruction layer.
 
-  --orch <claude|codex>  set the orchestrator without the prompt (default claude).
+  --orch <claude|codex>  set the orchestrator without the prompt (default claude;
+                         codex runs -a never -s workspace-write).
   --start    attach (or switch-client, if already in tmux) right after launch.
 
 Run MULTIPLE teams at once (each is its own tmux session, named <repo>-<team>).
@@ -491,15 +492,11 @@ launch() {
   local out="$ws/.agent-out"; mkdir -p "$out"
   : > "$out/PANES.md"   # role -> pane map the orchestrator reads to dispatch
 
-  # SESSION is already a unique name (resolve_session); do NOT kill siblings.
-  tmux new-session -d -s "$SESSION" -n w0 -c "$ws"   # pane 0 = orchestrator
-  style_session                                       # modern status bar + pane borders
-
   # ROSTER: the orchestrator must dispatch ONLY to roles actually on this team.
   # ORCHESTRATOR.md lists every possible role; the roster scopes it to what launched.
   # We compose the static brief + roster into ONE per-team file, fed to whichever
-  # orchestrator launches (see below). One file avoids multiline shell-quoting in
-  # send-keys, and claude rejects mixing an inline prompt with the file flag.
+  # orchestrator launches (see below). One file avoids multiline shell-quoting,
+  # and claude rejects mixing an inline prompt with the file flag.
   local src="$(cd "$(dirname "$0")" && pwd)/ORCHESTRATOR.md"
   local brief="$out/ORCHESTRATOR.md"
   # {{INVOKE}} in the brief -> the command this install answers to (arkestra / ark),
@@ -517,15 +514,21 @@ launch() {
 
   # Start pane 0 with the chosen orchestrator, both fed the SAME composed brief
   # (static ORCHESTRATOR.md + this team's roster) via each CLI's native
-  # instruction surface. Claude has a system-prompt file flag. Codex has
-  # invocation-scoped developer_instructions, which keeps the TUI idle so the
-  # human's first message is the actual task, not arkestra's control brief.
+  # instruction surface. Claude has a system-prompt file flag. Codex runs in
+  # auto mode (-a never) while staying workspace-sandboxed, and uses
+  # invocation-scoped developer_instructions so the TUI stays idle for the
+  # human's actual first task instead of arkestra's control brief.
   local orch_cmd
   case "$ORCH" in
-    codex)  orch_cmd="codex -c developer_instructions=\"\$(cat $(shquote "$brief"))\"" ;;
+    codex)  orch_cmd="codex -a never -s workspace-write -c developer_instructions=\"\$(cat $(shquote "$brief"))\"" ;;
     *)      orch_cmd="claude --append-system-prompt-file $(shquote "$brief")" ;;
   esac
-  tmux send-keys -t "$SESSION:w0" "$orch_cmd" Enter
+
+  # SESSION is already a unique name (resolve_session); do NOT kill siblings.
+  # Start the orchestrator as the pane command instead of typing it with
+  # send-keys; this keeps the launch command out of visible scrollback.
+  tmux new-session -d -s "$SESSION" -n w0 -c "$ws" "clear; $orch_cmd; exec $(shquote "${SHELL:-/bin/zsh}")"
+  style_session                                       # modern status bar + pane borders
 
   set -- $roles
   local n=$#
