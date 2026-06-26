@@ -174,7 +174,8 @@ SET a persistent per-role default (picker lists the CLI's real models):
 Model resolution per role: --flag  >  agents.conf  >  the CLI's own default.
 Bare `tools agents` probes DEFAULT roles (coding arch git) and confirms.
 The orchestrator runs as pane 0; you attach to watch. At launch you pick who
-orchestrates (claude default, or codex) — both get the same brief + roster.
+orchestrates (claude default, or codex) — both get the same brief + roster
+through that CLI's native instruction layer.
 
   --orch <claude|codex>  set the orchestrator without the prompt (default claude).
   --start    attach (or switch-client, if already in tmux) right after launch.
@@ -483,7 +484,7 @@ launch() {
   : > "$out/PANES.md"   # role -> pane map the orchestrator reads to dispatch
 
   # SESSION is already a unique name (resolve_session); do NOT kill siblings.
-  tmux new-session -d -s "$SESSION" -n w0 -c "$ws"   # pane 0 = orchestrator (Claude)
+  tmux new-session -d -s "$SESSION" -n w0 -c "$ws"   # pane 0 = orchestrator
   style_session                                       # modern status bar + pane borders
 
   # ROSTER: the orchestrator must dispatch ONLY to roles actually on this team.
@@ -505,12 +506,13 @@ launch() {
   } >> "$brief"
 
   # Start pane 0 with the chosen orchestrator, both fed the SAME composed brief
-  # (static ORCHESTRATOR.md + this team's roster). claude takes it as an appended
-  # system prompt; codex's interactive TUI has no such flag, so we seed it as the
-  # initial prompt argument — same content, same dispatch contract either way.
+  # (static ORCHESTRATOR.md + this team's roster) via each CLI's native
+  # instruction surface. Claude has a system-prompt file flag. Codex has
+  # invocation-scoped developer_instructions, which keeps the TUI idle so the
+  # human's first message is the actual task, not arkestra's control brief.
   local orch_cmd
   case "$ORCH" in
-    codex)  orch_cmd="codex $(shquote "$(cat "$brief")")" ;;
+    codex)  orch_cmd="codex -c developer_instructions=\"\$(cat $(shquote "$brief"))\"" ;;
     *)      orch_cmd="claude --append-system-prompt-file $(shquote "$brief")" ;;
   esac
   tmux send-keys -t "$SESSION:w0" "$orch_cmd" Enter

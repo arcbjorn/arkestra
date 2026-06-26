@@ -12,7 +12,7 @@ You give the lead one goal; it delegates scoped tasks to cheaper specialist
 agents, reviews their work, and integrates. Invoked as `tools agents`.
 
 ```
-┌─ orchestrator (Claude) ─┬─ arch    (codex)    ┐
+┌─ orchestrator ──────────┬─ arch    (codex)    ┐
 │  delegates · reviews ·  │  coding  (opencode) │  each worker = a pane,
 │  integrates             │  impl    (pi)       │  runs headless, signals
 │                         │  logs    (agy)      │  done via a sentinel file
@@ -22,7 +22,7 @@ agents, reviews their work, and integrates. Invoked as `tools agents`.
 How one task flows — the orchestrator never touches the work, only the result:
 
 ```
-  orchestrator (Claude)                 worker pane (headless)
+  orchestrator                          worker pane (headless)
         │
         │   dispatch <role> "task"           ┌────────────────────┐
         ├───────────────────────────────────▶│  runs the CLI      │
@@ -80,9 +80,12 @@ dispatches the right agents.
 ## How it works
 
 - **Orchestrator = Claude (default) or Codex**, always pane 0 — pick at launch
-  or with `--orch <claude|codex>` (both get the same brief + roster). It does NOT
-  edit files; it **delegates** via `tools agents dispatch <role> "<task>"`, waits
-  for each worker's sentinel, reviews the diff, and commits.
+  or with `--orch <claude|codex>`. Both get the same brief + roster through
+  their native instruction surface: Claude via `--append-system-prompt-file`,
+  Codex via invocation-scoped `developer_instructions`. Codex is not seeded with
+  a fake first prompt; the pane waits for your actual goal. The orchestrator does
+  NOT edit files; it **delegates** via `tools agents dispatch <role> "<task>"`,
+  waits for each worker's sentinel, reviews the diff, and commits.
 - **Workers run headless** with auto-approved permissions (never block on a
   prompt), under a pseudo-TTY so each CLI keeps its **native colors/formatting**
   live in the pane (easy to follow the reasoning). On completion each writes
@@ -141,7 +144,7 @@ tools agents model coding opencode/claude-opus-4-8   # keep harness, new model
 tools agents model git pi pi/mimo-v2.5-free          # switch harness + model
 ```
 
-The orchestrator (Claude, pane 0) is untouched — its conversation survives.
+The orchestrator (pane 0) is untouched — its conversation survives.
 `set` saves a default for future launches; `model` retargets the running team.
 
 ## Layout & navigation
@@ -168,9 +171,10 @@ tools agents uninstall                   # remove arkestra's own files
 
 ## Requirements
 
-`tmux`, `claude` (orchestrator), plus the agent CLIs for the roles you use
-(`codex`, `opencode`, `pi`, `agy`, `reasonix`), and `gum` for the nicest UI
-(falls back to plain prompts without it). Run `tools agents install` to check.
+`tmux`, one orchestrator CLI (`claude` or `codex`), plus the agent CLIs for the
+roles you use (`codex`, `opencode`, `pi`, `agy`, `reasonix`), and `gum` for the
+nicest UI (falls back to plain prompts without it). Run `tools agents install`
+to check.
 
 Written to run on macOS (bash 3.2) and Arch/Linux. See `CONFIG-SNAPSHOT.md` for
 how each CLI's active model is detected.
@@ -183,7 +187,7 @@ own docs (`tools agents install` checks what's present):
 | CLI        | role               | website                                              |
 |------------|--------------------|------------------------------------------------------|
 | `claude`   | orchestrator       | https://docs.claude.com/claude-code                  |
-| `codex`    | arch (default)     | https://github.com/openai/codex                      |
+| `codex`    | arch / orchestrator | https://github.com/openai/codex                      |
 | `opencode` | coding (default)   | https://opencode.ai                                  |
 | `pi`       | impl/git (default) | https://pi.dev                                       |
 | `agy`      | logs (default)     | https://antigravity.google                           |
