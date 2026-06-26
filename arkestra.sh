@@ -124,8 +124,7 @@ set_prefix() {
   [ -n "$b" ] && SESSION_PREFIX="$b"
 }
 
-# ---- running teams for this repo (tmux sessions named <repo>-*) ----
-list_teams() { tmux list-sessions -F '#{session_name}' 2>/dev/null | grep "^${SESSION_PREFIX}-" || true ; }
+# ---- tmux session inventory ----
 list_sessions() { tmux list-sessions -F '#{session_name}' 2>/dev/null || true ; }
 
 # auto_name -> lowest free <repo>-<N>
@@ -199,6 +198,7 @@ You're prompted for a team name at launch (Enter keeps the auto number); or pass
 OTHER COMMANDS:
   @ sessions [name]           list running tmux sessions and attach to one
                                          (picks if several; switch-client in tmux).
+  @ attach [name]             alias for sessions
   @ model <role> [<harness>] <model>
                                          swap a LIVE worker's model (next dispatch
                                          uses it; orchestrator keeps its context).
@@ -837,7 +837,7 @@ session_options() {
     win=$(tmux list-windows -t "$s" -F '#{window_name}' 2>/dev/null | head -1)
     attached=$(tmux display-message -p -t "$s" '#{session_attached}' 2>/dev/null || echo 0)
     if [ "${attached:-0}" -gt 0 ]; then state="attached"; else state="detached"; fi
-    out=$(printf '%s\n%-24s  %-18s  %s' "$out" "$s" "${win:-unknown}" "$state")
+    out=$(printf '%s\n%-24s  %-9s  %s' "$out" "$s" "$state" "${win:-unknown}")
   done
   printf '%s\n' "$out" | sed '/^$/d'
 }
@@ -857,8 +857,7 @@ cmd_stop() {
   elif [ "$(printf '%s\n' "$sessions" | grep -c .)" = 1 ]; then
     targets="$sessions"                                # only one running
   else
-    ui_title "stop session"
-    targets=$(ui_choose "which session to stop? (or --all)" "$(session_options "$sessions")")
+    targets=$(ui_choose "stop session (or --all)" "$(session_options "$sessions")")
     [ -n "$targets" ] || { printf "  ${DIM}cancelled.${NC}\n" >&2; return 0; }
     targets="${targets%%[[:space:]]*}"
   fi
@@ -891,8 +890,7 @@ cmd_sessions() {
   elif [ "$(printf '%s\n' "$sessions" | grep -c .)" = 1 ]; then
     target="$sessions"                                 # only one running
   else
-    ui_title "attach session"
-    target=$(ui_choose "attach to which session?" "$(session_options "$sessions")")
+    target=$(ui_choose "attach session" "$(session_options "$sessions")")
     [ -n "$target" ] || { printf "  ${DIM}cancelled.${NC}\n" >&2; return 0; }
     target="${target%%[[:space:]]*}"
   fi
