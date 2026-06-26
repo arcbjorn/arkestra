@@ -458,13 +458,16 @@ pick_workspace() {
 # =====================================================================
 style_session() {
   local s="$SESSION"
+  local left_len=$(( ${#s} + 14 ))
+  [ "$left_len" -lt 32 ] && left_len=32
+  [ "$left_len" -gt 80 ] && left_len=80
   # session-scoped chrome
   tmux set -t "$s" mouse on
   tmux set -t "$s" status-position top
   tmux set -t "$s" status-justify left
   tmux set -t "$s" status-style "bg=colour0,fg=colour8"
-  tmux set -t "$s" status-left  " #[fg=colour4,bold]arkestra#[default]   "
-  tmux set -t "$s" status-left-length 20
+  tmux set -t "$s" status-left  " #[fg=colour4,bold]arkestra: #S#[default]   "
+  tmux set -t "$s" status-left-length "$left_len"
   tmux set -t "$s" status-right "#[fg=colour8]%H:%M "
   tmux set -t "$s" status-right-length 10
   tmux set -t "$s" pane-border-status off
@@ -827,6 +830,18 @@ cleanup_arkestra_repo() {
   fi
 }
 
+session_stop_options() {
+  local sessions="$1" s out=""
+  for s in $sessions; do
+    local win attached state
+    win=$(tmux list-windows -t "$s" -F '#{window_name}' 2>/dev/null | head -1)
+    attached=$(tmux display-message -p -t "$s" '#{session_attached}' 2>/dev/null || echo 0)
+    if [ "${attached:-0}" -gt 0 ]; then state="attached"; else state="detached"; fi
+    out=$(printf '%s\n%-24s  %-18s  %s' "$out" "$s" "${win:-unknown}" "$state")
+  done
+  printf '%s\n' "$out" | sed '/^$/d'
+}
+
 cmd_stop() {
   local keep_out=0 all=0
   while [ "$#" -gt 0 ]; do case "$1" in
@@ -843,13 +858,9 @@ cmd_stop() {
     targets="$sessions"                                # only one running
   else
     ui_title "stop session"
-    local s
-    for s in $sessions; do
-      local win; win=$(tmux list-windows -t "$s" -F '#{window_name}' 2>/dev/null | head -1)
-      ui_kv "$s" "$win"
-    done
-    targets=$(ui_choose "which session to stop? (or --all)" "$sessions")
+    targets=$(ui_choose "which session to stop? (or --all)" "$(session_stop_options "$sessions")")
     [ -n "$targets" ] || { printf "  ${DIM}cancelled.${NC}\n" >&2; return 0; }
+    targets="${targets%%[[:space:]]*}"
   fi
 
   local repos=""
