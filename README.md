@@ -86,11 +86,13 @@ dispatches the right agents.
 - **Orchestrator = Claude (default) or Codex**, always pane 0 — pick at launch
   or with `--orch <claude|codex>`. Both get the same brief + roster through
   their native instruction surface: Claude via `--append-system-prompt-file`,
-  Codex via `-a never -s workspace-write` plus invocation-scoped
-  `developer_instructions`. Codex is not seeded with a fake first prompt; the
-  pane waits for your actual goal. The orchestrator does NOT edit files; it
-  **delegates** via `arkestra dispatch <role> "<task>"`, waits for each worker's
-  sentinel, reviews the diff, and commits.
+  Codex via `-a never -s danger-full-access` plus invocation-scoped
+  `developer_instructions`. Codex needs full access as the orchestrator because
+  delegation controls tmux through its socket; Codex workers still run sandboxed
+  with `codex exec -s workspace-write`. Codex is not seeded with a fake first
+  prompt; the pane waits for your actual goal. The orchestrator does NOT edit
+  files; it **delegates** via `arkestra dispatch <role> "<task>"`, waits for
+  each worker's sentinel, reviews the diff, and commits.
 - **Workers run headless** with auto-approved permissions (never block on a
   prompt), under a pseudo-TTY so each CLI keeps its **native colors/formatting**
   live in the pane (easy to follow the reasoning). On completion each writes
@@ -156,23 +158,31 @@ The orchestrator (pane 0) is untouched — its conversation survives.
 
 - **≤2 workers**: one window — orchestrator left, workers stacked right.
 - **>2 workers**: orchestrator + first worker in window 0, the rest 2-per-window.
+- The tmux status line identifies the team as `arkestra: <session-name>`.
 - `Option+Tab` next window · `Ctrl-b z` zoom a pane · click to focus (mouse on).
-- Detached? `arkestra sessions` lists running teams and attaches to one
-  (switches client if you're already inside tmux).
+- Detached? `arkestra sessions` / `arkestra attach` lists all tmux sessions,
+  including non-arkestra dev sessions, with attached/detached state and active
+  window. Passing a name attaches exactly to that tmux session; inside tmux it
+  switches the current client instead of nesting an attach.
 
 ## Commands
 
 ```bash
 arkestra [roles] [--<role> model] [--name <team>] [--start]   # launch
-arkestra sessions [name]             # list running teams and attach to one
+arkestra sessions [name]             # list all tmux sessions and attach
+arkestra attach [name]               # alias for sessions
 arkestra set <role>                  # set harness + model for a role (saved)
 arkestra model <role> [harness] <model>   # hot-swap a LIVE worker's model
 arkestra dispatch <role> "<task>"    # (the orchestrator uses this)
 arkestra wait <role>                 # (orchestrator) block on a worker's result
-arkestra stop [--all] [--keep-out]   # stop a team (picks which if several)
+arkestra stop [--all] [--keep-out]   # stop a tmux session (picks if several)
 arkestra install                     # check/install deps (macOS + Arch/Linux)
 arkestra uninstall                   # remove arkestra's own files
 ```
+
+`arkestra stop` also lists all tmux sessions. When it stops an arkestra session,
+it prunes that session's `.worktrees/agents-*` branches and clears `.agent-out`
+unless `--keep-out` is set. `--all` is literal: it stops every tmux session.
 
 ## Requirements
 

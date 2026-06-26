@@ -9,11 +9,11 @@ EMPTY, so every role defers to its CLI's own configured model.
 1. `--<role> <model>` flag on the command line — **session only**; never written
    to `agents.conf`, never affects anything persistent.
 2. `~/.config/arkestra/agents.conf` — **only if you deliberately set the role**
-   (via `tools agents set <role>`). Absent role = this layer is skipped.
+   (via `arkestra set <role>`). Absent role = this layer is skipped.
 3. The CLI's own configured model — the default. This is what runs when you
    haven't overridden anything.
 
-The picker (`tools agents set <role>`) lists the models the CLI reports, but you
+The picker (`arkestra set <role>`) lists the models the CLI reports, but you
 may also **type any model id directly** — CLIs don't always list a model that is
 still callable.
 
