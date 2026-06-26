@@ -75,8 +75,8 @@ printf "\n${BLUE}agent CLIs${NC} (install via their own docs if missing):\n"
 check_cli() {  # name  hint
   if command -v "$1" >/dev/null 2>&1; then ok "$1"; else miss "$1  ${GRAY}-> $2${NC}"; fi
 }
-check_cli claude   "https://docs.claude.com/claude-code  (orchestrator, REQUIRED)"
-check_cli codex    "npm i -g @openai/codex  (arch role)"
+check_cli claude   "https://docs.claude.com/claude-code  (default orchestrator)"
+check_cli codex    "npm i -g @openai/codex  (arch role / alt orchestrator)"
 check_cli opencode "https://opencode.ai  (coding role)"
 check_cli pi       "pi CLI  (impl/git roles)"
 check_cli agy      "curl -fsSL https://antigravity.google/cli/install.sh | bash  (logs role)"

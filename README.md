@@ -4,7 +4,7 @@
 
 # arkestra
 
-**A team of CLI coding agents in tmux, orchestrated by Claude.**
+**A team of CLI coding agents in tmux, orchestrated by Claude (or Codex).**
 
 </div>
 
@@ -79,9 +79,10 @@ dispatches the right agents.
 
 ## How it works
 
-- **Orchestrator = Claude**, always pane 0. It does NOT edit files; it
-  **delegates** via `tools agents dispatch <role> "<task>"`, waits for each
-  worker's sentinel, reviews the diff, and commits.
+- **Orchestrator = Claude (default) or Codex**, always pane 0 — pick at launch
+  or with `--orch <claude|codex>` (both get the same brief + roster). It does NOT
+  edit files; it **delegates** via `tools agents dispatch <role> "<task>"`, waits
+  for each worker's sentinel, reviews the diff, and commits.
 - **Workers run headless** with auto-approved permissions (never block on a
   prompt), under a pseudo-TTY so each CLI keeps its **native colors/formatting**
   live in the pane (easy to follow the reasoning). On completion each writes

@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 #
 # arkestra.sh - launch a tmux structure of CLI coding agents orchestrated by
-# Claude, coordinated via file sentinels. Invoked as `tools agents`.
+# Claude (or Codex), coordinated via file sentinels. Invoked as `tools agents`.
 #
 # Design (all pieces proven standalone before assembly):
-#   - orchestrator = Claude, always left half of window 0 (fixed)
+#   - orchestrator = Claude (default) or Codex, always left half of window 0;
+#     both get the SAME composed brief + roster (chosen at launch / --orch)
 #   - workers run HEADLESS (narration + diffs stream to pane, process exits,
 #     writes .agent-out/<role>.done with exit code). Zoom any pane: Ctrl-b z.
 #   - all workers share ONE workspace (picked at launch); the orchestrator
@@ -29,6 +30,7 @@ set -eu
 
 SESSION="arkestra"   # resolved per-launch to a unique <repo>-<name> (see resolve_session)
 SESSION_PREFIX="arkestra"   # set per-run to the current repo's name (see set_prefix)
+ORCH="claude"        # orchestrator CLI for pane 0; claude (default) or codex (see pick_orchestrator)
 RED='\033[38;5;1m'; GREEN='\033[38;5;2m'; YELLOW='\033[38;5;3m'
 BLUE='\033[38;5;4m'; MAGENTA='\033[38;5;5m'; CYAN='\033[38;5;6m'
 WHITE='\033[38;5;7m'; GRAY='\033[38;5;8m'; B='\033[1m'; DIM='\033[2m'; NC='\033[0m'
@@ -136,6 +138,20 @@ resolve_session() {
   echo "$n"
 }
 
+# pick_orchestrator [forced] -> echoes the orchestrator CLI for pane 0. claude is
+# the default; codex is the alternative. A non-empty [forced] (from --orch) skips
+# the prompt. The chosen CLI must exist on PATH (workers don't need the orch CLI).
+pick_orchestrator() {
+  local forced="${1:-}"
+  if [ -n "$forced" ]; then
+    case "$forced" in claude|codex) echo "$forced"; return ;;
+      *) die "--orch must be claude or codex (got '$forced')" ;; esac
+  fi
+  local pick
+  pick=$(ui_choose "who orchestrates? (Enter = claude)" "$(printf '● claude  (default)\n○ codex')")
+  case "$pick" in *codex*) echo codex ;; *) echo claude ;; esac
+}
+
 usage() {
   cat <<'EOF'
 tools agents - launch an orchestrated CLI agents team in tmux
@@ -157,8 +173,10 @@ SET a persistent per-role default (picker lists the CLI's real models):
 
 Model resolution per role: --flag  >  agents.conf  >  the CLI's own default.
 Bare `tools agents` probes DEFAULT roles (coding arch git) and confirms.
-The orchestrator (Claude) is always launched as pane 0; you attach to watch.
+The orchestrator runs as pane 0; you attach to watch. At launch you pick who
+orchestrates (claude default, or codex) — both get the same brief + roster.
 
+  --orch <claude|codex>  set the orchestrator without the prompt (default claude).
   --start    attach (or switch-client, if already in tmux) right after launch.
 
 Run MULTIPLE teams at once (each is its own tmux session, named <repo>-<team>).
@@ -470,9 +488,9 @@ launch() {
 
   # ROSTER: the orchestrator must dispatch ONLY to roles actually on this team.
   # ORCHESTRATOR.md lists every possible role; the roster scopes it to what launched.
-  # We compose the static brief + roster into ONE per-team file and pass it as a
-  # single --append-system-prompt-file. (claude rejects mixing the file and inline
-  # flags; a file also avoids multiline shell-quoting in send-keys.)
+  # We compose the static brief + roster into ONE per-team file, fed to whichever
+  # orchestrator launches (see below). One file avoids multiline shell-quoting in
+  # send-keys, and claude rejects mixing an inline prompt with the file flag.
   local src="$(cd "$(dirname "$0")" && pwd)/ORCHESTRATOR.md"
   local brief="$out/ORCHESTRATOR.md"
   [ -f "$src" ] && cat "$src" > "$brief" || : > "$brief"
@@ -486,7 +504,16 @@ launch() {
     printf 'If a task needs a role not listed above, tell the user it is not on this team (do NOT dispatch it).\n'
   } >> "$brief"
 
-  tmux send-keys -t "$SESSION:w0" "claude --append-system-prompt-file $(shquote "$brief")" Enter
+  # Start pane 0 with the chosen orchestrator, both fed the SAME composed brief
+  # (static ORCHESTRATOR.md + this team's roster). claude takes it as an appended
+  # system prompt; codex's interactive TUI has no such flag, so we seed it as the
+  # initial prompt argument — same content, same dispatch contract either way.
+  local orch_cmd
+  case "$ORCH" in
+    codex)  orch_cmd="codex $(shquote "$(cat "$brief")")" ;;
+    *)      orch_cmd="claude --append-system-prompt-file $(shquote "$brief")" ;;
+  esac
+  tmux send-keys -t "$SESSION:w0" "$orch_cmd" Enter
 
   set -- $roles
   local n=$#
@@ -869,15 +896,15 @@ main() {
     uninstall) exec bash "$(cd "$(dirname "$0")" && pwd)/install.sh" --uninstall ;;
   esac
   command -v tmux >/dev/null 2>&1 || die "tmux is required"
-  command -v claude >/dev/null 2>&1 || die "claude (orchestrator) is required"
   git rev-parse --git-dir >/dev/null 2>&1 || die "run inside a git repository"
   local repo; repo=$(git rev-parse --show-toplevel)
 
-  # parse: positional roles + --<role> model overrides + --name <team>
-  local want="" name="" start=0
+  # parse: positional roles + --<role> model overrides + --name <team> + --orch <cli>
+  local want="" name="" start=0 orch=""
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --name) shift; [ "$#" -gt 0 ] || die "--name needs a value"; name="$1" ;;
+      --orch) shift; [ "$#" -gt 0 ] || die "--orch needs a value (claude|codex)"; orch="$1" ;;
       --start) start=1 ;;
       --arch|--coding|--impl|--logs|--git)
         local rr="${1#--}"; shift; [ "$#" -gt 0 ] || die "--$rr needs a model"
@@ -893,6 +920,8 @@ main() {
   [ -n "$roles" ] || die "no valid roles"
 
   SESSION=$(resolve_session "$name")         # unique <repo>-<name|N>; no collision
+  ORCH=$(pick_orchestrator "$orch")          # claude (default) or codex for pane 0
+  command -v "$ORCH" >/dev/null 2>&1 || die "$ORCH (orchestrator) is required"
   local ws; ws=$(pick_workspace "$repo") || exit $?
   probe "$roles" || exit $?
   launch "$roles" "$repo" "$ws"
