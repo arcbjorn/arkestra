@@ -31,6 +31,15 @@ if [ "${1:-}" = "--uninstall" ]; then
   else
     note "no config dir at $CONF_DIR"
   fi
+  # remove the standalone symlinks if they point back at this repo's arkestra.sh
+  SELF="$(cd "$(dirname "$0")" && pwd)/arkestra.sh"
+  BIN_DIR="${XDG_BIN_HOME:-$HOME/.local/bin}"
+  for name in arkestra ark; do
+    link="$BIN_DIR/$name"
+    if [ -L "$link" ] && [ "$(readlink "$link")" = "$SELF" ]; then
+      rm -f "$link" && ok "removed $link"
+    fi
+  done
   note "agent CLIs (claude/codex/opencode/pi/agy) left untouched — uninstall those via their own tools."
   note "the arkestra repo/submodule itself is left in place — remove it via git if you want."
   printf "${GREEN}done.${NC}\n"
@@ -110,4 +119,24 @@ esac
 mkdir -p "$CONF_DIR"
 ok "config dir: $CONF_DIR"
 
-printf "\n${GREEN}done.${NC} launch with ${BLUE}tools agents${NC}; set defaults with ${BLUE}tools agents set <role>${NC}\n"
+# ---- standalone commands: symlink `arkestra` + `ark` into ~/.local/bin (the
+# XDG user bin dir). Both point at this script's arkestra.sh; the name you type
+# is what its help and the orchestrator brief print. Skipped inside the `tools`
+# repo, where `tools agents` (and scripts/arkestra, scripts/ark) already cover it.
+BIN_DIR="${XDG_BIN_HOME:-$HOME/.local/bin}"
+SELF="$(cd "$(dirname "$0")" && pwd)/arkestra.sh"
+printf "\n${BLUE}standalone commands${NC}\n"
+if printf '%s' "$SELF" | grep -q '/tools/sources/arkestra/'; then
+  note "inside the tools repo — use 'tools agents', 'arkestra', or 'ark' (already on PATH); no symlinks created."
+else
+  mkdir -p "$BIN_DIR"
+  for name in arkestra ark; do
+    ln -sf "$SELF" "$BIN_DIR/$name" && ok "linked $BIN_DIR/$name -> arkestra.sh"
+  done
+  case ":$PATH:" in
+    *":$BIN_DIR:"*) : ;;
+    *) note "$BIN_DIR is not on your PATH — add it: export PATH=\"$BIN_DIR:\$PATH\"" ;;
+  esac
+fi
+
+printf "\n${GREEN}done.${NC} launch with ${BLUE}arkestra${NC} (or ${BLUE}ark${NC}); set defaults with ${BLUE}arkestra set <role>${NC}\n"

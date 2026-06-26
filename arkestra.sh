@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 #
 # arkestra.sh - launch a tmux structure of CLI coding agents orchestrated by
-# Claude (or Codex), coordinated via file sentinels. Invoked as `tools agents`.
+# Claude (or Codex), coordinated via file sentinels. Invoked as `arkestra` / `ark`
+# standalone, or `tools agents` inside the tools monorepo (same script, $INVOKE).
 #
 # Design (all pieces proven standalone before assembly):
 #   - orchestrator = Claude (default) or Codex, always left half of window 0;
@@ -31,6 +32,12 @@ set -eu
 SESSION="arkestra"   # resolved per-launch to a unique <repo>-<name> (see resolve_session)
 SESSION_PREFIX="arkestra"   # set per-run to the current repo's name (see set_prefix)
 ORCH="claude"        # orchestrator CLI for pane 0; claude (default) or codex (see pick_orchestrator)
+# INVOKE — the command users (and the orchestrator) type to drive arkestra. When
+# launched via the `tools` dispatcher it exports ARKESTRA_INVOKE="tools agents";
+# standalone it's the symlink name actually used (arkestra / ark). All help text,
+# runtime hints, and the orchestrator brief render with this so self-references
+# (e.g. `<INVOKE> dispatch ...`) always match how THIS install was invoked.
+INVOKE="${ARKESTRA_INVOKE:-$(basename "$0" .sh)}"
 RED='\033[38;5;1m'; GREEN='\033[38;5;2m'; YELLOW='\033[38;5;3m'
 BLUE='\033[38;5;4m'; MAGENTA='\033[38;5;5m'; CYAN='\033[38;5;6m'
 WHITE='\033[38;5;7m'; GRAY='\033[38;5;8m'; B='\033[1m'; DIM='\033[2m'; NC='\033[0m'
@@ -153,10 +160,12 @@ pick_orchestrator() {
 }
 
 usage() {
-  cat <<'EOF'
-tools agents - launch an orchestrated CLI agents team in tmux
+  # @ is the invocation placeholder; replaced with $INVOKE (tools agents / arkestra
+  # / ark) so the help matches how this install is actually driven.
+  sed "s|@|$INVOKE|g" <<'EOF'
+@ - launch an orchestrated CLI agents team in tmux
 
-  tools agents [roles...] [--<role> model] ...
+  @ [roles...] [--<role> model] ...
 
 ROLES (fixed priority, give any subset; unused are skipped):
   arch    codex     architecture / second opinion
@@ -166,13 +175,13 @@ ROLES (fixed priority, give any subset; unused are skipped):
   git     git ops via pi (small/fast)
 
 OVERRIDE a role's model for this session (else the saved/CLI default):
-  tools agents coding arch --coding opencode/claude-opus-4-8 --arch gpt-5.5
+  @ coding arch --coding opencode/claude-opus-4-8 --arch gpt-5.5
 
 SET a persistent per-role default (picker lists the CLI's real models):
-  tools agents set coding        # then pick from the list; saved to agents.conf
+  @ set coding        # then pick from the list; saved to agents.conf
 
 Model resolution per role: --flag  >  agents.conf  >  the CLI's own default.
-Bare `tools agents` probes DEFAULT roles (coding arch git) and confirms.
+Bare `@` probes DEFAULT roles (coding arch git) and confirms.
 The orchestrator runs as pane 0; you attach to watch. At launch you pick who
 orchestrates (claude default, or codex) — both get the same brief + roster
 through that CLI's native instruction layer.
@@ -183,23 +192,23 @@ through that CLI's native instruction layer.
 Run MULTIPLE teams at once (each is its own tmux session, named <repo>-<team>).
 You're prompted for a team name at launch (Enter keeps the auto number); or pass
 --name to skip it:
-  tools agents --name api coding impl     # session <repo>-api
-  tools agents arch logs                   # prompts; default <repo>-1, -2…
+  @ --name api coding impl     # session <repo>-api
+  @ arch logs                   # prompts; default <repo>-1, -2…
 
 OTHER COMMANDS:
-  tools agents sessions [name]           list running teams and attach to one
+  @ sessions [name]           list running teams and attach to one
                                          (picks if several; switch-client in tmux).
-  tools agents model <role> [<harness>] <model>
+  @ model <role> [<harness>] <model>
                                          swap a LIVE worker's model (next dispatch
                                          uses it; orchestrator keeps its context).
-  tools agents dispatch <role> "<task>"  (the orchestrator delegates a task)
-  tools agents wait <role>               (block until the role's .done; print
+  @ dispatch <role> "<task>"  (the orchestrator delegates a task)
+  @ wait <role>               (block until the role's .done; print
                                          exit code + summary. orchestrator's only
                                          move after dispatch — no polling.)
-  tools agents stop [--all] [--keep-out] stop a team (picks which if several;
+  @ stop [--all] [--keep-out] stop a team (picks which if several;
                                          --all stops every team). prunes worktrees.
-  tools agents install                   check/install deps (macOS + Arch/Linux)
-  tools agents uninstall                 remove arkestra's own files (config dir)
+  @ install                   check/install deps (macOS + Arch/Linux)
+  @ uninstall                 remove arkestra's own files (config dir)
 EOF
 }
 
@@ -494,7 +503,9 @@ launch() {
   # send-keys, and claude rejects mixing an inline prompt with the file flag.
   local src="$(cd "$(dirname "$0")" && pwd)/ORCHESTRATOR.md"
   local brief="$out/ORCHESTRATOR.md"
-  [ -f "$src" ] && cat "$src" > "$brief" || : > "$brief"
+  # {{INVOKE}} in the brief -> the command this install answers to (tools agents /
+  # arkestra / ark), so the orchestrator dispatches via a command that exists here.
+  [ -f "$src" ] && sed "s|{{INVOKE}}|$INVOKE|g" "$src" > "$brief" || : > "$brief"
   {
     printf '\nTHIS TEAM has exactly these roles — dispatch ONLY to them, never any other:\n'
     local rr rm rh
@@ -562,7 +573,7 @@ launch() {
 
   ui_title "team launched"
   printf "  ${GREEN}✓${NC} attach   ${B}tmux attach -t %s${NC}\n" "$SESSION" >&2
-  printf "  ${GRAY}·${NC} switch   ${DIM}Option+Tab${NC}   ${GRAY}·${NC} zoom ${DIM}Ctrl-b z${NC}   ${GRAY}·${NC} stop ${DIM}tools agents stop${NC}\n" >&2
+  printf "  ${GRAY}·${NC} switch   ${DIM}Option+Tab${NC}   ${GRAY}·${NC} zoom ${DIM}Ctrl-b z${NC}   ${GRAY}·${NC} stop ${DIM}%s stop${NC}\n" "$INVOKE" >&2
 }
 
 # =====================================================================
@@ -686,8 +697,8 @@ sed -E \"s/\${ESC}\\[[0-9;]*[a-zA-Z]//g; s/\$(printf '\\r')//g; s/[\$(printf '\\
     fi
   ) >/dev/null 2>&1 &
 
-  printf "${GREEN}dispatched${NC} %s -> %s  ${GRAY}(then: tools agents wait %s; stall %ss, cap %ss progress-aware)${NC}\n" \
-    "$role" "$pane" "$role" "$stall" "$hard"
+  printf "${GREEN}dispatched${NC} %s -> %s  ${GRAY}(then: %s wait %s; stall %ss, cap %ss progress-aware)${NC}\n" \
+    "$role" "$pane" "$INVOKE" "$role" "$stall" "$hard"
 }
 
 # =====================================================================
@@ -912,7 +923,7 @@ main() {
         local rr="${1#--}"; shift; [ "$#" -gt 0 ] || die "--$rr needs a model"
         eval "OVR_$rr=\"\$1\""; want="$want $rr" ;;
       arch|coding|impl|logs|git) want="$want $1" ;;
-      *) die "unknown arg '$1' (try: tools agents --help)" ;;
+      *) die "unknown arg '$1' (try: $INVOKE --help)" ;;
     esac
     shift
   done

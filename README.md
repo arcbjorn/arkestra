@@ -9,7 +9,8 @@
 </div>
 
 You give the lead one goal; it delegates scoped tasks to cheaper specialist
-agents, reviews their work, and integrates. Invoked as `tools agents`.
+agents, reviews their work, and integrates. Invoked as `arkestra` (or the
+short alias `ark`).
 
 ```
 ┌─ orchestrator ──────────┬─ arch    (codex)    ┐
@@ -65,15 +66,19 @@ How one task flows — the orchestrator never touches the work, only the result:
 ## Quick start
 
 ```bash
-tools agents                     # default roles: coding arch git
-tools agents arch coding impl logs git   # all roles
-tools agents --name api coding impl      # a named team (run several at once)
-tools agents coding git --start          # launch and jump straight in
+arkestra                         # default roles: coding arch git
+arkestra arch coding impl logs git       # all roles
+arkestra --name api coding impl          # a named team (run several at once)
+ark coding git --start                   # short alias; launch and jump straight in
 ```
 
 Pick the workspace, confirm the pre-flight table, attach (or pass `--start`
 to attach automatically). Then tell the orchestrator what you want — it
 dispatches the right agents.
+
+> `arkestra`, `ark`, and `tools agents` (inside the [tools](https://github.com/arcbjorn/tools)
+> monorepo) are the same CLI — the command you type is what its help and the
+> orchestrator's brief print back.
 
 <img width="676" alt="workspace picker and pre-flight table" src="https://github.com/user-attachments/assets/c0e91c24-b78f-41d8-bfeb-f3de0d06e15c" />
 
@@ -84,7 +89,7 @@ dispatches the right agents.
   their native instruction surface: Claude via `--append-system-prompt-file`,
   Codex via invocation-scoped `developer_instructions`. Codex is not seeded with
   a fake first prompt; the pane waits for your actual goal. The orchestrator does
-  NOT edit files; it **delegates** via `tools agents dispatch <role> "<task>"`,
+  NOT edit files; it **delegates** via `arkestra dispatch <role> "<task>"`,
   waits for each worker's sentinel, reviews the diff, and commits.
 - **Workers run headless** with auto-approved permissions (never block on a
   prompt), under a pseudo-TTY so each CLI keeps its **native colors/formatting**
@@ -129,8 +134,8 @@ Resolution, highest first:
 3. the CLI's own configured model — the fallback (empty conf = this)
 
 ```bash
-tools agents set git                     # picker: harness, then model -> saved
-tools agents coding --coding opencode/gpt-5.5   # one-session override
+arkestra set git                     # picker: harness, then model -> saved
+arkestra coding --coding opencode/gpt-5.5   # one-session override
 ```
 
 The picker lists the CLI's real models; you can also type any callable id.
@@ -140,8 +145,8 @@ stateless between dispatches (each runs headless, then exits), so swapping a
 worker's model only needs to take effect on the *next* dispatch:
 
 ```bash
-tools agents model coding opencode/claude-opus-4-8   # keep harness, new model
-tools agents model git pi pi/mimo-v2.5-free          # switch harness + model
+arkestra model coding opencode/claude-opus-4-8   # keep harness, new model
+arkestra model git pi pi/mimo-v2.5-free          # switch harness + model
 ```
 
 The orchestrator (pane 0) is untouched — its conversation survives.
@@ -152,28 +157,28 @@ The orchestrator (pane 0) is untouched — its conversation survives.
 - **≤2 workers**: one window — orchestrator left, workers stacked right.
 - **>2 workers**: orchestrator + first worker in window 0, the rest 2-per-window.
 - `Option+Tab` next window · `Ctrl-b z` zoom a pane · click to focus (mouse on).
-- Detached? `tools agents sessions` lists running teams and attaches to one
+- Detached? `arkestra sessions` lists running teams and attaches to one
   (switches client if you're already inside tmux).
 
 ## Commands
 
 ```bash
-tools agents [roles] [--<role> model] [--name <team>] [--start]   # launch
-tools agents sessions [name]             # list running teams and attach to one
-tools agents set <role>                  # set harness + model for a role (saved)
-tools agents model <role> [harness] <model>   # hot-swap a LIVE worker's model
-tools agents dispatch <role> "<task>"    # (the orchestrator uses this)
-tools agents wait <role>                 # (orchestrator) block on a worker's result
-tools agents stop [--all] [--keep-out]   # stop a team (picks which if several)
-tools agents install                     # check/install deps (macOS + Arch/Linux)
-tools agents uninstall                   # remove arkestra's own files
+arkestra [roles] [--<role> model] [--name <team>] [--start]   # launch
+arkestra sessions [name]             # list running teams and attach to one
+arkestra set <role>                  # set harness + model for a role (saved)
+arkestra model <role> [harness] <model>   # hot-swap a LIVE worker's model
+arkestra dispatch <role> "<task>"    # (the orchestrator uses this)
+arkestra wait <role>                 # (orchestrator) block on a worker's result
+arkestra stop [--all] [--keep-out]   # stop a team (picks which if several)
+arkestra install                     # check/install deps (macOS + Arch/Linux)
+arkestra uninstall                   # remove arkestra's own files
 ```
 
 ## Requirements
 
 `tmux`, one orchestrator CLI (`claude` or `codex`), plus the agent CLIs for the
 roles you use (`codex`, `opencode`, `pi`, `agy`, `reasonix`), and `gum` for the
-nicest UI (falls back to plain prompts without it). Run `tools agents install`
+nicest UI (falls back to plain prompts without it). Run `arkestra install`
 to check.
 
 Written to run on macOS (bash 3.2) and Arch/Linux. See `CONFIG-SNAPSHOT.md` for
@@ -182,7 +187,7 @@ how each CLI's active model is detected.
 ## CLIs used
 
 arkestra orchestrates these external CLIs — install the ones you need via their
-own docs (`tools agents install` checks what's present):
+own docs (`arkestra install` checks what's present):
 
 | CLI        | role               | website                                              |
 |------------|--------------------|------------------------------------------------------|
