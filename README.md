@@ -76,9 +76,8 @@ Pick the workspace, confirm the pre-flight table, attach (or pass `--start`
 to attach automatically). Then tell the orchestrator what you want — it
 dispatches the right agents.
 
-> `arkestra`, `ark`, and `tools agents` (inside the [tools](https://github.com/arcbjorn/tools)
-> monorepo) are the same CLI — the command you type is what its help and the
-> orchestrator's brief print back.
+> `arkestra` and `ark` are the same CLI — the command you type is what its help
+> and the orchestrator's brief print back.
 
 <img width="676" alt="workspace picker and pre-flight table" src="https://github.com/user-attachments/assets/c0e91c24-b78f-41d8-bfeb-f3de0d06e15c" />
 

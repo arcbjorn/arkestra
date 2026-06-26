@@ -119,19 +119,20 @@ esac
 mkdir -p "$CONF_DIR"
 ok "config dir: $CONF_DIR"
 
-# ---- standalone commands: symlink `arkestra` + `ark` into ~/.local/bin (the
-# XDG user bin dir). Both point at this script's arkestra.sh; the name you type
-# is what its help and the orchestrator brief print. Skipped inside the `tools`
-# repo, where `tools agents` (and scripts/arkestra, scripts/ark) already cover it.
+# ---- commands: symlink `arkestra` + `ark` into ~/.local/bin (the XDG user bin
+# dir). Both point at this script; the name you type is what its help and the
+# orchestrator brief print. If an `arkestra` is ALREADY on PATH from somewhere
+# other than the symlink we'd create, a wrapper already provides it — skip.
 BIN_DIR="${XDG_BIN_HOME:-$HOME/.local/bin}"
 SELF="$(cd "$(dirname "$0")" && pwd)/arkestra.sh"
-printf "\n${BLUE}standalone commands${NC}\n"
-if printf '%s' "$SELF" | grep -q '/tools/sources/arkestra/'; then
-  note "inside the tools repo — use 'tools agents', 'arkestra', or 'ark' (already on PATH); no symlinks created."
+printf "\n${BLUE}commands${NC}\n"
+existing="$(command -v arkestra 2>/dev/null || true)"
+if [ -n "$existing" ] && [ "$existing" != "$BIN_DIR/arkestra" ]; then
+  note "'arkestra' is already on PATH ($existing) — no symlinks created."
 else
   mkdir -p "$BIN_DIR"
   for name in arkestra ark; do
-    ln -sf "$SELF" "$BIN_DIR/$name" && ok "linked $BIN_DIR/$name -> arkestra.sh"
+    ln -sf "$SELF" "$BIN_DIR/$name" && ok "linked $BIN_DIR/$name -> arkestra"
   done
   case ":$PATH:" in
     *":$BIN_DIR:"*) : ;;

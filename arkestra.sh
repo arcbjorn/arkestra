@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 #
 # arkestra.sh - launch a tmux structure of CLI coding agents orchestrated by
-# Claude (or Codex), coordinated via file sentinels. Invoked as `arkestra` / `ark`
-# standalone, or `tools agents` inside the tools monorepo (same script, $INVOKE).
+# Claude (or Codex), coordinated via file sentinels. Invoked as `arkestra` / `ark`.
 #
 # Design (all pieces proven standalone before assembly):
 #   - orchestrator = Claude (default) or Codex, always left half of window 0;
@@ -32,11 +31,11 @@ set -eu
 SESSION="arkestra"   # resolved per-launch to a unique <repo>-<name> (see resolve_session)
 SESSION_PREFIX="arkestra"   # set per-run to the current repo's name (see set_prefix)
 ORCH="claude"        # orchestrator CLI for pane 0; claude (default) or codex (see pick_orchestrator)
-# INVOKE — the command users (and the orchestrator) type to drive arkestra. When
-# launched via the `tools` dispatcher it exports ARKESTRA_INVOKE="tools agents";
-# standalone it's the symlink name actually used (arkestra / ark). All help text,
-# runtime hints, and the orchestrator brief render with this so self-references
-# (e.g. `<INVOKE> dispatch ...`) always match how THIS install was invoked.
+# INVOKE — the command users (and the orchestrator) type to drive arkestra:
+# normally the invoked name (arkestra / ark). A wrapper that re-exposes arkestra
+# under a different command can override it by exporting ARKESTRA_INVOKE. All help
+# text, runtime hints, and the orchestrator brief render with this so
+# self-references (e.g. `<INVOKE> dispatch ...`) match how this install is driven.
 INVOKE="${ARKESTRA_INVOKE:-$(basename "$0" .sh)}"
 RED='\033[38;5;1m'; GREEN='\033[38;5;2m'; YELLOW='\033[38;5;3m'
 BLUE='\033[38;5;4m'; MAGENTA='\033[38;5;5m'; CYAN='\033[38;5;6m'
@@ -91,7 +90,7 @@ ui_input() {
   fi
 }
 
-# Persistent per-role model defaults (set once via `tools agents set <role>`).
+# Persistent per-role model defaults (set once via `arkestra set <role>`).
 CONF_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/arkestra"
 CONF="$CONF_DIR/agents.conf"
 
@@ -108,7 +107,7 @@ conf_set() {
 # arkestra per-role overrides. EMPTY by default -> each role uses its default
 # harness (CLI) and that CLI's own configured model. Add a line ONLY to override.
 # Resolution: 1) --<role> flag (session) 2) this file 3) the default.
-# Format: <role> <harness> <model>   (set via `tools agents set <role>`).
+# Format: <role> <harness> <model>   (set via `arkestra set <role>`).
 EOF
   fi
   local tmp="$CONF.tmp"
@@ -160,8 +159,8 @@ pick_orchestrator() {
 }
 
 usage() {
-  # @ is the invocation placeholder; replaced with $INVOKE (tools agents / arkestra
-  # / ark) so the help matches how this install is actually driven.
+  # @ is the invocation placeholder; replaced with $INVOKE (arkestra / ark) so the
+  # help matches how this install is actually driven.
   sed "s|@|$INVOKE|g" <<'EOF'
 @ - launch an orchestrated CLI agents team in tmux
 
@@ -503,8 +502,8 @@ launch() {
   # send-keys, and claude rejects mixing an inline prompt with the file flag.
   local src="$(cd "$(dirname "$0")" && pwd)/ORCHESTRATOR.md"
   local brief="$out/ORCHESTRATOR.md"
-  # {{INVOKE}} in the brief -> the command this install answers to (tools agents /
-  # arkestra / ark), so the orchestrator dispatches via a command that exists here.
+  # {{INVOKE}} in the brief -> the command this install answers to (arkestra / ark),
+  # so the orchestrator dispatches via a command that exists here.
   [ -f "$src" ] && sed "s|{{INVOKE}}|$INVOKE|g" "$src" > "$brief" || : > "$brief"
   {
     printf '\nTHIS TEAM has exactly these roles — dispatch ONLY to them, never any other:\n'
@@ -577,7 +576,7 @@ launch() {
 }
 
 # =====================================================================
-# `tools agents dispatch <role> "<task>"` — the ORCHESTRATOR uses this to run a
+# `arkestra dispatch <role> "<task>"` — the ORCHESTRATOR uses this to run a
 # real headless task in a role's pane. Looks up the pane+model from PANES.md,
 # sends the headless command (which writes .agent-out/<role>.done on exit).
 # =====================================================================
@@ -702,7 +701,7 @@ sed -E \"s/\${ESC}\\[[0-9;]*[a-zA-Z]//g; s/\$(printf '\\r')//g; s/[\$(printf '\\
 }
 
 # =====================================================================
-# `tools agents wait <role>` — BLOCK until the role's .done exists, then print
+# `arkestra wait <role>` — BLOCK until the role's .done exists, then print
 # its two lines and exit with the worker's own exit code. This is the
 # orchestrator's ONE move after dispatch: a single blocking call instead of a
 # poll loop in Claude's context (which burns tokens re-reading state). The
@@ -735,7 +734,7 @@ cmd_wait() {
 }
 
 # =====================================================================
-# `tools agents model <role> [<harness>] <model>` — change a LIVE team's worker
+# `arkestra model <role> [<harness>] <model>` — change a LIVE team's worker
 # model without restarting. Workers are stateless per-dispatch (dispatch reads
 # harness/model from PANES.md each time), so rewriting PANES.md is enough — the
 # orchestrator (pane 0) keeps all its context. Refreshes the worker's banner too.
@@ -772,7 +771,7 @@ cmd_model() {
 }
 
 # =====================================================================
-# `tools agents stop` — tear down the running team: kill the tmux session,
+# `arkestra stop` — tear down the running team: kill the tmux session,
 # prune any worktrees it created, and clear .agent-out scratch (with --keep-out
 # to leave sentinels/PANES.md for inspection).
 # =====================================================================
@@ -824,7 +823,7 @@ cmd_stop() {
 }
 
 # =====================================================================
-# `tools agents sessions` — list running teams and attach to a chosen one.
+# `arkestra sessions` — list running teams and attach to a chosen one.
 # Inside an existing tmux client we switch-client (attach refuses to nest);
 # from a plain shell, attach. Pass a name to skip the picker.
 # =====================================================================
@@ -857,7 +856,7 @@ cmd_sessions() {
 ALL_HARNESSES="codex opencode pi agy reasonix"   # claude excluded (it is the orchestrator)
 
 # =====================================================================
-# `tools agents set <role>` — pick HARNESS, then a model from it; save to conf.
+# `arkestra set <role>` — pick HARNESS, then a model from it; save to conf.
 # =====================================================================
 cmd_set() {
   local role="${1:-}"
