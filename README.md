@@ -147,6 +147,9 @@ stateless between dispatches (each runs headless, then exits), so swapping a
 worker's model only needs to take effect on the *next* dispatch:
 
 ```bash
+arkestra model                          # picker: role, harness, then model
+arkestra model coding                   # picker: harness, then model
+arkestra model coding pi                # picker: pi model
 arkestra model coding opencode/claude-opus-4-8   # keep harness, new model
 arkestra model git pi pi/mimo-v2.5-free          # switch harness + model
 ```
@@ -172,16 +175,19 @@ arkestra [roles] [--<role> model] [--name <team>] [--start]   # launch
 arkestra sessions [name]             # list all tmux sessions and attach
 arkestra attach [name]               # alias for sessions
 arkestra set <role>                  # set harness + model for a role (saved)
-arkestra model <role> [harness] <model>   # hot-swap a LIVE worker's model
+arkestra model [role] [[harness] model]   # hot-swap a LIVE worker's model
 arkestra dispatch <role> "<task>"    # (the orchestrator uses this)
 arkestra wait <role>                 # (orchestrator) block on a worker's result
-arkestra stop [--all] [--keep-out]   # stop a tmux session (picks if several)
+arkestra stop [--all] [--current] [--keep-out]
+                                      # stop a tmux session (picks if several)
 arkestra install                     # check/install deps (macOS + Arch/Linux)
 arkestra uninstall                   # remove arkestra's own files
 ```
 
-`arkestra stop` also lists all tmux sessions. When it stops an arkestra session,
-it prunes that session's `.worktrees/agents-*` branches and clears `.agent-out`
+`arkestra stop` also lists all tmux sessions. `arkestra stop --current` stops
+the only arkestra session detected for the current repo and exits without
+stopping anything if more than one matches. When it stops an arkestra session, it
+prunes that session's `.worktrees/agents-*` branches and clears `.agent-out`
 unless `--keep-out` is set. `--all` is literal: it stops every tmux session.
 
 ## Requirements
