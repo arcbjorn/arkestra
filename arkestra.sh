@@ -128,7 +128,7 @@ set_prefix() {
 list_sessions() { tmux list-sessions -F '#{session_name}' 2>/dev/null || true ; }
 
 # auto_name -> lowest free <repo>-<N>
-auto_name() { local i=1; while tmux has-session -t "${SESSION_PREFIX}-$i" 2>/dev/null; do i=$((i+1)); done; echo "$i"; }
+auto_name() { local i=1; while tmux has-session -t "=${SESSION_PREFIX}-$i" 2>/dev/null; do i=$((i+1)); done; echo "$i"; }
 
 # resolve_session [name] -> echoes a UNIQUE session name. Given a name, uses
 # <repo>-<name> (must be free). Otherwise prompts (default = next free number).
@@ -140,7 +140,7 @@ resolve_session() {
     [ -n "$want" ] || want="$def"
   fi
   local n="${SESSION_PREFIX}-${want}"
-  tmux has-session -t "$n" 2>/dev/null && die "a team named '$n' is already running (stop it first, or pick another name)"
+  tmux has-session -t "=$n" 2>/dev/null && die "a team named '$n' is already running (stop it first, or pick another name)"
   echo "$n"
 }
 
@@ -808,8 +808,8 @@ cmd_model() {
 # =====================================================================
 session_arkestra_repos() {
   local t="$1" panes
-  panes=$(tmux list-panes -t "$t" -F '#{pane_id}' 2>/dev/null || true)
-  tmux list-panes -t "$t" -F '#{pane_current_path}' 2>/dev/null | while IFS= read -r path; do
+  panes=$(tmux list-panes -t "=$t" -F '#{pane_id}' 2>/dev/null || true)
+  tmux list-panes -t "=$t" -F '#{pane_current_path}' 2>/dev/null | while IFS= read -r path; do
     local repo pane
     repo=$(git -C "$path" rev-parse --show-toplevel 2>/dev/null || true)
     [ -n "$repo" ] || continue
@@ -846,13 +846,16 @@ cleanup_arkestra_repo() {
 
 session_options() {
   local sessions="$1" s out=""
-  for s in $sessions; do
+  while IFS= read -r s; do
+    [ -n "$s" ] || continue
     local win attached state
-    win=$(tmux list-windows -t "$s" -F '#{window_name}' 2>/dev/null | head -1)
-    attached=$(tmux display-message -p -t "$s" '#{session_attached}' 2>/dev/null || echo 0)
+    win=$(tmux list-windows -t "=$s" -F '#{window_name}' 2>/dev/null | head -1)
+    attached=$(tmux display-message -p -t "=$s:" '#{session_attached}' 2>/dev/null || echo 0)
     if [ "${attached:-0}" -gt 0 ]; then state="attached"; else state="detached"; fi
-    out=$(printf '%s\n%-24s  %-9s  %s' "$out" "$s" "$state" "${win:-unknown}")
-  done
+    out=$(printf '%s\n%s\t%s\t%s' "$out" "$s" "$state" "${win:-unknown}")
+  done <<EOF
+$sessions
+EOF
   printf '%s\n' "$out" | sed '/^$/d'
 }
 
@@ -873,15 +876,18 @@ cmd_stop() {
   else
     targets=$(ui_choose "stop session (or --all)" "$(session_options "$sessions")")
     [ -n "$targets" ] || { printf "  ${DIM}cancelled.${NC}\n" >&2; return 0; }
-    targets="${targets%%[[:space:]]*}"
+    targets="${targets%%$'\t'*}"
   fi
 
   local repos=""
   local t
-  for t in $targets; do
+  while IFS= read -r t; do
+    [ -n "$t" ] || continue
     repos=$(printf '%s\n%s\n' "$repos" "$(session_arkestra_repos "$t")" | sort -u)
-    tmux kill-session -t "$t" 2>/dev/null && printf "  ${GREEN}✓${NC} stopped ${B}%s${NC}\n" "$t" >&2
-  done
+    tmux kill-session -t "=$t" 2>/dev/null && printf "  ${GREEN}✓${NC} stopped ${B}%s${NC}\n" "$t" >&2
+  done <<EOF
+$targets
+EOF
 
   local repo
   for repo in $repos; do cleanup_arkestra_repo "$repo" "$keep_out"; done
@@ -893,7 +899,7 @@ cmd_stop() {
 # from a plain shell, attach. Pass a name to skip the picker.
 # =====================================================================
 cmd_sessions() {
-  local want="${1:-}"
+  local want="$*"
   local sessions; sessions=$(list_sessions)
   if [ -z "$sessions" ]; then printf "  ${GRAY}no running tmux sessions.${NC}\n" >&2; return 0; fi
 
@@ -906,7 +912,7 @@ cmd_sessions() {
   else
     target=$(ui_choose "attach session" "$(session_options "$sessions")")
     [ -n "$target" ] || { printf "  ${DIM}cancelled.${NC}\n" >&2; return 0; }
-    target="${target%%[[:space:]]*}"
+    target="${target%%$'\t'*}"
   fi
 
   if [ -n "${TMUX:-}" ]; then exec tmux switch-client -t "=$target"
@@ -1001,8 +1007,8 @@ main() {
   # --start: jump straight into the team. Inside an existing tmux client we must
   # switch-client (attach refuses to nest); from a plain shell, attach.
   if [ "$start" -eq 1 ]; then
-    if [ -n "${TMUX:-}" ]; then exec tmux switch-client -t "$SESSION"
-    else exec tmux attach -t "$SESSION"; fi
+    if [ -n "${TMUX:-}" ]; then exec tmux switch-client -t "=$SESSION"
+    else exec tmux attach -t "=$SESSION"; fi
   fi
 }
 
