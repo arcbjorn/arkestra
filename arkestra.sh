@@ -96,9 +96,9 @@ CONF="$CONF_DIR/agents.conf"
 
 # conf line format: <role> <harness> <model>
 # saved harness's model (field 3); empty if role unset
-conf_get()     { [ -f "$CONF" ] && awk -v r="$1" '$1==r{print $3; exit}' "$CONF"; }
+conf_get()     { [ -f "$CONF" ] || return 0; awk -v r="$1" '$1==r{print $3; exit}' "$CONF"; }
 # saved harness (field 2); empty if role unset
-conf_harness() { [ -f "$CONF" ] && awk -v r="$1" '$1==r{print $2; exit}' "$CONF"; }
+conf_harness() { [ -f "$CONF" ] || return 0; awk -v r="$1" '$1==r{print $2; exit}' "$CONF"; }
 # write/replace a role's harness+model in agents.conf
 conf_set() {
   mkdir -p "$CONF_DIR"
@@ -126,6 +126,12 @@ set_prefix() {
 
 # ---- tmux session inventory ----
 list_sessions() { tmux list-sessions -F '#{session_name}' 2>/dev/null || true ; }
+canonical_dir() { (cd "$1" 2>/dev/null && pwd -P) || return 1; }
+path_under_root() {
+  local path="$1" root="$2"
+  [ "$path" = "$root" ] && return 0
+  case "$path" in "$root"/*) return 0 ;; *) return 1 ;; esac
+}
 
 # auto_name -> lowest free <repo>-<N>
 auto_name() { local i=1; while tmux has-session -t "=${SESSION_PREFIX}-$i" 2>/dev/null; do i=$((i+1)); done; echo "$i"; }
@@ -199,15 +205,18 @@ OTHER COMMANDS:
   @ sessions [name]           list running tmux sessions and attach to one
                                          (picks if several; switch-client in tmux).
   @ attach [name]             alias for sessions
-  @ model <role> [<harness>] <model>
+  @ model [<role>] [[<harness>] <model>]
                                          swap a LIVE worker's model (next dispatch
+                                         prompts for omitted role / harness / model;
                                          uses it; orchestrator keeps its context).
   @ dispatch <role> "<task>"  (the orchestrator delegates a task)
   @ wait <role>               (block until the role's .done; print
                                          exit code + summary. orchestrator's only
                                          move after dispatch — no polling.)
-  @ stop [--all] [--keep-out] stop a tmux session (picks which if several;
+  @ stop [--all] [--current] [--keep-out]
+                                         stop a tmux session (picks which if several;
                                          --all stops every tmux session).
+                                         --current stops this repo's only matching team.
                                          prunes arkestra worktrees.
   @ install                   check/install deps (macOS + Arch/Linux)
   @ uninstall                 remove arkestra's own files (config dir)
@@ -548,6 +557,8 @@ launch() {
   # Start the orchestrator as the pane command instead of typing it with
   # send-keys; this keeps the launch command out of visible scrollback.
   tmux new-session -d -s "$SESSION" -n w0 -c "$ws" "clear; $orch_cmd; exec $(shquote "${SHELL:-/bin/zsh}")"
+  tmux set -t "$SESSION" @arkestra_root "$repo"
+  tmux set -t "$SESSION" @arkestra_workspace "$ws"
   style_session                                       # modern status bar + pane borders
 
   set -- $roles
@@ -765,24 +776,79 @@ cmd_wait() {
 }
 
 # =====================================================================
-# `arkestra model <role> [<harness>] <model>` — change a LIVE team's worker
+# `arkestra model [<role>] [[<harness>] <model>]` — change a LIVE team's worker
 # model without restarting. Workers are stateless per-dispatch (dispatch reads
 # harness/model from PANES.md each time), so rewriting PANES.md is enough — the
 # orchestrator (pane 0) keeps all its context. Refreshes the worker's banner too.
 # =====================================================================
+live_role_options() {
+  local panes="$1"
+  awk '
+    NF {
+      role=$1
+      harness=""
+      model=""
+      for (i=2; i<=NF; i++) {
+        if ($i ~ /^harness=/) {
+          harness=substr($i, 9)
+        } else if ($i ~ /^model=/) {
+          model=substr($0, index($0, $i) + 6)
+          break
+        }
+      }
+      printf "%s  (%s · %s)\n", role, harness, model
+    }
+  ' "$panes"
+}
+
 cmd_model() {
   local role="${1:-}" a2="${2:-}" a3="${3:-}"
-  [ -n "$role" ] && [ -n "$a2" ] || die "model <role> [<harness>] <model>  (e.g. model coding opencode/claude-opus-4-8)"
   local repo; repo=$(git rev-parse --show-toplevel 2>/dev/null) || die "not in a git repo"
   local panes="$repo/.agent-out/PANES.md"
+  [ -f "$panes" ] || die "no running team found ($panes missing)"
+  if [ -z "$role" ]; then
+    local picked_role
+    picked_role=$(ui_choose "worker to retarget:" "$(live_role_options "$panes")")
+    role=$(choice_value "$picked_role")
+    [ -n "$role" ] || die "nothing picked"
+  fi
+
   local line; line=$(awk -v r="$role" '$1==r{print; exit}' "$panes" 2>/dev/null)
   [ -n "$line" ] || die "role '$role' not on the running team (no $role line in PANES.md)"
 
-  # arg shapes: `model coding opencode/gpt-5.5`  OR  `model coding opencode gpt-5.5`.
-  local harness model pane
+  # Supported shapes:
+  #   model
+  #   model coding
+  #   model coding opencode/gpt-5.5
+  #   model coding opencode
+  #   model coding opencode gpt-5.5
+  local harness model pane current_harness current_model
   pane=$(printf '%s' "$line" | sed -E 's/.*pane=([^ ]+).*/\1/')
-  if [ -n "$a3" ]; then harness="$a2"; model="$a3"
-  else harness=$(printf '%s' "$line" | sed -E 's/.*harness=([^ ]+).*/\1/'); model="$a2"; fi
+  current_harness=$(printf '%s' "$line" | sed -E 's/.*harness=([^ ]+).*/\1/')
+  current_model=$(printf '%s' "$line" | sed -E 's/.*model=(.+)$/\1/')
+  if [ -n "$a3" ]; then
+    harness="$a2"
+    model="$a3"
+  elif [ -n "$a2" ]; then
+    if is_harness "$a2"; then
+      harness="$a2"
+      if [ "$harness" = "$current_harness" ]; then
+        model=$(pick_model_for_harness "$harness" "$current_model")
+      else
+        model=$(pick_model_for_harness "$harness")
+      fi
+    else
+      harness="$current_harness"
+      model="$a2"
+    fi
+  else
+    harness=$(pick_harness_for_role "$role" "$current_harness")
+    if [ "$harness" = "$current_harness" ]; then
+      model=$(pick_model_for_harness "$harness" "$current_model")
+    else
+      model=$(pick_model_for_harness "$harness")
+    fi
+  fi
 
   valid_for "$harness" "$model" || printf "  ${YELLOW}!${NC} ${DIM}%s may not list '%s' — dispatching anyway${NC}\n" "$harness" "$model" >&2
 
@@ -819,6 +885,34 @@ session_arkestra_repos() {
         "$repo/.agent-out/PANES.md" 2>/dev/null && { printf '%s\n' "$repo"; break; }
     done
   done | sort -u
+}
+
+session_matches_current_repo() {
+  local t="$1" root="$2"
+  local opt_root
+  opt_root=$(tmux show-options -v -t "=$t" @arkestra_root 2>/dev/null || true)
+  if [ -n "$opt_root" ]; then
+    opt_root=$(canonical_dir "$opt_root") || return 1
+    [ "$opt_root" = "$root" ]
+    return
+  fi
+
+  case "$t" in "$SESSION_PREFIX"-*) : ;; *) return 1 ;; esac
+  tmux list-panes -s -t "=$t" -F '#{pane_current_path}' 2>/dev/null | while IFS= read -r path; do
+    local real
+    real=$(canonical_dir "$path") || continue
+    path_under_root "$real" "$root" && { printf '%s\n' "$t"; break; }
+  done | grep -q .
+}
+
+current_arkestra_sessions() {
+  local sessions="$1" root="$2" s
+  while IFS= read -r s; do
+    [ -n "$s" ] || continue
+    session_matches_current_repo "$s" "$root" && printf '%s\n' "$s"
+  done <<EOF
+$sessions
+EOF
 }
 
 cleanup_arkestra_repo() {
@@ -860,10 +954,11 @@ EOF
 }
 
 cmd_stop() {
-  local keep_out=0 all=0
+  local keep_out=0 all=0 current=0
   while [ "$#" -gt 0 ]; do case "$1" in
-    --keep-out) keep_out=1 ;; --all) all=1 ;;
+    --keep-out) keep_out=1 ;; --all) all=1 ;; --current) current=1 ;;
   esac; shift; done
+  [ "$all" = 1 ] && [ "$current" = 1 ] && die "stop --current cannot be combined with --all"
 
   local sessions; sessions=$(list_sessions)
   if [ -z "$sessions" ]; then printf "  ${GRAY}no running tmux sessions.${NC}\n" >&2; return 0; fi
@@ -871,6 +966,19 @@ cmd_stop() {
   local targets
   if [ "$all" = 1 ]; then
     targets="$sessions"
+  elif [ "$current" = 1 ]; then
+    local repo root count
+    repo=$(git rev-parse --show-toplevel 2>/dev/null) || die "stop --current must run inside a git repo"
+    root=$(canonical_dir "$repo") || die "cannot resolve repo path: $repo"
+    targets=$(current_arkestra_sessions "$sessions" "$root" || true)
+    count=$(printf '%s\n' "$targets" | grep -c .)
+    case "$count" in
+      0) printf "  ${GRAY}no arkestra session for current repo: %s${NC}\n" "$repo" >&2; return 0 ;;
+      1) : ;;
+      *) printf "  ${RED}✗${NC} stop --current matched multiple sessions for ${B}%s${NC}; nothing stopped.\n" "$repo" >&2
+         printf '%s\n' "$targets" | sed 's/^/    /' >&2
+         exit 1 ;;
+    esac
   elif [ "$(printf '%s\n' "$sessions" | grep -c .)" = 1 ]; then
     targets="$sessions"                                # only one running
   else
@@ -921,39 +1029,77 @@ cmd_sessions() {
 
 ALL_HARNESSES="codex opencode pi agy reasonix"   # claude excluded (it is the orchestrator)
 
+is_harness() {
+  case " $ALL_HARNESSES " in *" $1 "*) return 0 ;; *) return 1 ;; esac
+}
+
+choice_value() {
+  local v="$1"
+  case "$v" in "● "*) v="${v#● }" ;; "○ "*) v="${v#○ }" ;; esac
+  case "$v" in *"  ("*) v="${v%%  (*}" ;; esac
+  printf '%s' "$v"
+}
+
+pick_harness_for_role() {
+  local role="$1" current="${2:-}" def hopts="" h label
+  def=$(default_harness "$role")
+  for h in $ALL_HARNESSES; do
+    command -v "$h" >/dev/null 2>&1 || continue
+    label="$h"
+    if [ -n "$current" ] && [ "$h" = "$current" ]; then
+      label="$label  (current)"
+    elif [ "$h" = "$def" ]; then
+      label="$label  (default)"
+    fi
+    hopts="$hopts$label
+"
+  done
+  [ -n "$hopts" ] || die "no supported agent CLI found on PATH ($ALL_HARNESSES)"
+
+  h=$(ui_choose "harness (CLI) for $role:" "$hopts")
+  h=$(choice_value "$h")
+  [ -n "$h" ] || h="${current:-$def}"
+  printf '%s' "$h"
+}
+
+pick_model_for_harness() {
+  local harness="$1" current="${2:-}" models opts="" chosen
+  models=$(list_models_for "$harness" || true)
+  if [ -n "$models" ]; then
+    if [ -n "$current" ]; then
+      opts="● $current  (current)
+"
+      models=$(printf '%s\n' "$models" | awk -v cur="$current" '$0 != cur')
+    fi
+    opts="$opts$models
+✎ type a custom model id…"
+    chosen=$(ui_choose "model for $harness:" "$opts")
+    chosen=$(choice_value "$chosen")
+    case "$chosen" in "✎ type a custom"*) chosen=$(ui_input "custom model id:") ;; esac
+  else
+    chosen=$(ui_input "$harness lists no models — type any callable id:" "$current")
+  fi
+  [ -n "$chosen" ] || die "nothing picked"
+  printf '%s' "$chosen"
+}
+
 # =====================================================================
 # `arkestra set <role>` — pick HARNESS, then a model from it; save to conf.
 # =====================================================================
 cmd_set() {
   local role="${1:-}"
   case " $PRIORITY " in *" $role "*) :;; *) die "set <role>: one of $PRIORITY";; esac
-  local def; def=$(default_harness "$role")
   ui_title "configure role" "$role"
 
-  # 1) pick the harness — only installed ones, default marked.
-  local hopts=""
-  for h in $ALL_HARNESSES; do
-    command -v "$h" >/dev/null 2>&1 || continue
-    if [ "$h" = "$def" ]; then hopts="$hopts$h  (default)
-"; else hopts="$hopts$h
-"; fi
-  done
-  local harness; harness=$(ui_choose "harness (CLI) for $role:" "$hopts")
-  harness="${harness%%  *}"                       # strip the "(default)" suffix
-  [ -n "$harness" ] || harness="$def"             # empty pick = default
-
-  # 2) pick a model from that harness; a "type custom" option allows any
-  # callable id the CLI doesn't list.
-  local models; models=$(list_models_for "$harness")
-  local chosen
-  if [ -n "$models" ]; then
-    chosen=$(ui_choose "model for $harness:" "$models
-✎ type a custom model id…")
-    case "$chosen" in "✎ type a custom"*) chosen=$(ui_input "custom model id:") ;; esac
+  local current_harness current_model harness chosen
+  current_harness=$(conf_harness "$role")
+  current_model=$(conf_get "$role")
+  harness=$(pick_harness_for_role "$role" "$current_harness")
+  if [ -n "$current_harness" ] && [ "$harness" = "$current_harness" ]; then
+    chosen=$(pick_model_for_harness "$harness" "$current_model")
   else
-    chosen=$(ui_input "$harness lists no models — type any callable id:")
+    chosen=$(pick_model_for_harness "$harness")
   fi
-  [ -n "$chosen" ] || die "nothing picked"
 
   conf_set "$role" "$harness" "$chosen"
   printf "\n  ${GREEN}✓${NC} ${B}%s${NC} ${GRAY}→${NC} ${CYAN}%s${NC} ${GRAY}·${NC} %s\n" "$role" "$harness" "$chosen" >&2
