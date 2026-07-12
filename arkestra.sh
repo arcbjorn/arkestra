@@ -1168,4 +1168,7 @@ main() {
   fi
 }
 
-main "$@"
+# Run main only when executed directly, not when sourced (e.g. by tests).
+if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
+  main "$@"
+fi
