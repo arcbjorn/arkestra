@@ -256,6 +256,9 @@ default_for() { case "$1" in   # $1 = harness
             # provider NAME (what -model takes), e.g. deepseek-flash.
             reasonix doctor --json 2>/dev/null \
               | sed -E -n 's/.*"default_model"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' | head -1 ;;
+  grok)     # `grok models` prints "Default model: <id>" (works unauthenticated).
+            grok models 2>/dev/null \
+              | sed -E -n 's/^Default model:[[:space:]]*(.+)$/\1/p' | head -1 ;;
 esac; }
 
 # agy's active model: it stores no user default, but logs the selected model
@@ -289,6 +292,7 @@ valid_for() { local h="$1" m="$2"; [ -n "$m" ] || return 1; case "$h" in   # $1 
   agy)       command -v agy >/dev/null 2>&1 ;;
   reasonix)  reasonix doctor --json 2>/dev/null \
                | sed -E -n 's/.*"name"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' | grep -qx "$m" ;;
+  grok)      list_models_for grok | grep -qx "$m" ;;
   *)         command -v "$h" >/dev/null 2>&1 ;;                     # unknown harness: just exists
 esac; }
 
@@ -301,6 +305,9 @@ list_models_for() { case "$1" in   # $1 = harness
   agy)       agy models 2>/dev/null ;;
   reasonix)  reasonix doctor --json 2>/dev/null \
                | sed -E -n 's/.*"name"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' ;;  # provider names
+  grok)      # `grok models` bullet lines: "  * <id> (default)" / "  - <id>"; take the id.
+             grok models 2>/dev/null \
+               | sed -E -n 's/^[[:space:]]*[*-][[:space:]]+([^ ]+).*/\1/p' ;;
 esac; }
 
 suggest_for() { list_models_for "$1" | head -6 | sed 's/^/      /'; }
@@ -327,6 +334,9 @@ worker_cmd() {
               # --dangerously-skip-permissions / --yolo) instead launches the
               # interactive UI, so pass nothing but `run`.
               echo "reasonix run --model $m $t";;
+    grok)     # `-p` is single-turn headless (prints to stdout and exits);
+              # --permission-mode auto approves tool runs so it never hangs.
+              echo "grok -p $t -m $m --permission-mode auto";;
     *)        echo "$harness -p $t";;   # unknown: best-effort headless
   esac
 }
@@ -1027,7 +1037,7 @@ cmd_sessions() {
   else exec tmux attach -t "=$target"; fi
 }
 
-ALL_HARNESSES="codex opencode pi agy reasonix"   # claude excluded (it is the orchestrator)
+ALL_HARNESSES="codex opencode pi agy reasonix grok"   # claude excluded (it is the orchestrator)
 
 is_harness() {
   case " $ALL_HARNESSES " in *" $1 "*) return 0 ;; *) return 1 ;; esac
