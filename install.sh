@@ -4,7 +4,7 @@
 #
 # arkestra itself is a single POSIX-ish bash script; "install" means: confirm
 # the runtime deps are present and offer to install the ones a package manager
-# can provide. The agent CLIs (claude/codex/opencode/pi/agy/reasonix) are installed
+# can provide. The agent CLIs (claude/codex/opencode/pi/agy/reasonix/kimi) are installed
 # out-of-band (npm/curl per their own docs) -- we only check + point you at them.
 #
 # bash 3.2 safe (macOS default bash). No associative arrays, no `\s`, no GNU-isms.
@@ -90,6 +90,7 @@ check_cli opencode "https://opencode.ai  (coding role)"
 check_cli pi       "pi CLI  (impl/git roles)"
 check_cli agy      "curl -fsSL https://antigravity.google/cli/install.sh | bash  (logs role)"
 check_cli reasonix "npm i -g reasonix  |  brew install esengine/reasonix/reasonix  (any role)"
+check_cli kimi     "curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash  (any role; then /login)"
 
 # ---- offer to install the system deps via the detected PM ----
 if [ -n "$SYS_MISSING" ]; then

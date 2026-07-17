@@ -124,7 +124,7 @@ dispatches the right agents.
 | logs   | agy         | log / code investigation      |
 | git    | pi          | git operations                |
 
-Any role can run on any harness (codex/opencode/pi/agy/reasonix) — see below.
+Any role can run on any harness (codex/opencode/pi/agy/reasonix/grok/kimi) — see below.
 
 ## Configuring models & harnesses
 
@@ -193,7 +193,7 @@ unless `--keep-out` is set. `--all` is literal: it stops every tmux session.
 ## Requirements
 
 `tmux`, one orchestrator CLI (`claude` or `codex`), plus the agent CLIs for the
-roles you use (`codex`, `opencode`, `pi`, `agy`, `reasonix`), and `gum` for the
+roles you use (`codex`, `opencode`, `pi`, `agy`, `reasonix`, `grok`, `kimi`), and `gum` for the
 nicest UI (falls back to plain prompts without it). Run `arkestra install`
 to check.
 
@@ -213,5 +213,7 @@ own docs (`arkestra install` checks what's present):
 | `pi`       | impl/git (default) | https://pi.dev                                       |
 | `agy`      | logs (default)     | https://antigravity.google                           |
 | `reasonix` | any role           | https://github.com/esengine/deepseek-reasonix        |
+| `grok`     | any role           | https://github.com/superagent-ai/grok-cli            |
+| `kimi`     | any role           | https://www.kimi.com/code/docs/en/                   |
 | `tmux`     | pane multiplexer   | https://github.com/tmux/tmux                         |
 | `gum`      | TUI (optional)     | https://github.com/charmbracelet/gum                 |
