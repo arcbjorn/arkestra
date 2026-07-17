@@ -19,7 +19,7 @@ teardown() { arkestra_teardown; }
 
 @test "all expected harnesses are recognized" {
   source_arkestra
-  for h in codex opencode pi agy reasonix grok; do
+  for h in codex opencode pi agy reasonix grok kimi; do
     run is_harness "$h"
     [ "$status" -eq 0 ] || { echo "is_harness $h failed"; return 1; }
   done
@@ -257,6 +257,83 @@ OUT'
 }
 
 # ---------------------------------------------------------------------------
+# kimi
+# ---------------------------------------------------------------------------
+
+# kimi's `provider list --json` shape: model ALIASES are the keys of "models"
+# (pretty-printed at indent 4). `/login` synthesizes these; logged out it is {}.
+kimi_models_stub() {
+  stub_cli kimi '[ "$1" = "provider" ] && [ "$2" = "list" ] && cat <<OUT
+{
+  "providers": {
+    "kimi-code": {
+      "type": "anthropic",
+      "base_url": "https://api.kimi.com/coding/"
+    }
+  },
+  "models": {
+    "k3": {
+      "provider": "kimi-code",
+      "max_context_size": 262144
+    },
+    "kimi-for-coding": {
+      "provider": "kimi-code",
+      "max_context_size": 262144
+    }
+  }
+}
+OUT'
+}
+
+@test "kimi model list is the alias keys from 'provider list --json'" {
+  kimi_models_stub
+  source_arkestra
+  run list_models_for kimi
+  [ "${lines[0]}" = "k3" ]
+  [ "${lines[1]}" = "kimi-for-coding" ]
+  # provider ids and nested fields must never leak in as models.
+  [ "${#lines[@]}" -eq 2 ]
+}
+
+@test "kimi default model comes from config.toml default_model" {
+  mkdir -p "${FAKE_HOME}/.kimi-code"
+  # a [models."k3"] section must NOT be mistaken for the default.
+  printf 'default_model = "kimi-for-coding"\n\n[models."k3"]\nmax_context_size = 262144\n' \
+    > "${FAKE_HOME}/.kimi-code/config.toml"
+  source_arkestra
+  run default_for kimi
+  [ "$output" = "kimi-for-coding" ]
+}
+
+@test "kimi accepts a configured alias and rejects others" {
+  kimi_models_stub
+  source_arkestra
+  run valid_for kimi k3
+  [ "$status" -eq 0 ]
+  run valid_for kimi bogus-model
+  [ "$status" -ne 0 ]
+  run valid_for kimi ""
+  [ "$status" -ne 0 ]
+}
+
+@test "kimi with no configured models is unavailable (logged out)" {
+  # Logged out, kimi reports empty objects and refuses every -m, so probe must
+  # block rather than dispatch a model the CLI will reject.
+  stub_cli kimi '[ "$1" = "provider" ] && [ "$2" = "list" ] && printf "{\n  \"providers\": {},\n  \"models\": {}\n}\n"'
+  source_arkestra
+  run list_models_for kimi
+  [ -z "$output" ]
+  run valid_for kimi kimi-for-coding
+  [ "$status" -ne 0 ]
+}
+
+@test "kimi worker_cmd is single-turn headless with yolo approval" {
+  source_arkestra
+  run worker_cmd kimi kimi-for-coding "fix the parser bug"
+  [ "$output" = "kimi -p 'fix the parser bug' -m 'kimi-for-coding' -y" ]
+}
+
+# ---------------------------------------------------------------------------
 # cross-cutting
 # ---------------------------------------------------------------------------
 
@@ -275,10 +352,11 @@ OUT'
   [ "$(default_harness git)" = "pi" ]
 }
 
-@test "grok is not wired as a default for any role" {
+@test "grok and kimi are not wired as a default for any role" {
   source_arkestra
   for role in arch coding impl logs git; do
     run default_harness "$role"
     [ "$output" != "grok" ]
+    [ "$output" != "kimi" ]
   done
 }
