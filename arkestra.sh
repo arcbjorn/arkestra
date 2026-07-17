@@ -259,6 +259,11 @@ default_for() { case "$1" in   # $1 = harness
   grok)     # `grok models` prints "Default model: <id>" (works unauthenticated).
             grok models 2>/dev/null \
               | sed -E -n 's/^Default model:[[:space:]]*(.+)$/\1/p' | head -1 ;;
+  kimi)     # kimi's active model = default_model in its config.toml. `/login` in the
+            # TUI synthesizes the managed provider + model aliases into that file;
+            # until then it is empty and kimi has NO usable model (see valid_for).
+            grep -iE '^[[:space:]]*default_model[[:space:]]*=' "$HOME/.kimi-code/config.toml" 2>/dev/null \
+              | head -1 | sed -E 's/.*"([^"]+)".*/\1/' ;;
 esac; }
 
 # agy's active model: it stores no user default, but logs the selected model
@@ -293,6 +298,10 @@ valid_for() { local h="$1" m="$2"; [ -n "$m" ] || return 1; case "$h" in   # $1 
   reasonix)  reasonix doctor --json 2>/dev/null \
                | sed -E -n 's/.*"name"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' | grep -qx "$m" ;;
   grok)      list_models_for grok | grep -qx "$m" ;;
+  kimi)      # kimi REFUSES any model absent from config.toml's [models.*], even a
+             # real alias (k3 / kimi-for-coding), so the configured list is the only
+             # truth. Empty list = not logged in -> block with the /login fix.
+             list_models_for kimi | grep -qx "$m" ;;
   *)         command -v "$h" >/dev/null 2>&1 ;;                     # unknown harness: just exists
 esac; }
 
@@ -308,6 +317,14 @@ list_models_for() { case "$1" in   # $1 = harness
   grok)      # `grok models` bullet lines: "  * <id> (default)" / "  - <id>"; take the id.
              grok models 2>/dev/null \
                | sed -E -n 's/^[[:space:]]*[*-][[:space:]]+([^ ]+).*/\1/p' ;;
+  kimi)      # `provider list --json` -> {"providers":{…},"models":{"<alias>":{…}}}.
+             # The model ALIASES are the keys of "models" (what -m takes); pretty-printed
+             # one per line at indent 4. Emit those keys only, from "models" to its close.
+             # Prints nothing when not logged in ("models":{}) — valid_for treats an
+             # empty list as unavailable, so probe blocks with the /login fix.
+             kimi provider list --json 2>/dev/null \
+               | sed -n '/"models"[[:space:]]*:/,/^  }/p' \
+               | sed -E -n 's/^    "([^"]+)"[[:space:]]*:.*/\1/p' ;;
 esac; }
 
 suggest_for() { list_models_for "$1" | head -6 | sed 's/^/      /'; }
@@ -337,6 +354,9 @@ worker_cmd() {
     grok)     # `-p` is single-turn headless (prints to stdout and exits);
               # --permission-mode auto approves tool runs so it never hangs.
               echo "grok -p $t -m $m --permission-mode auto";;
+    kimi)     # `-p` runs one prompt non-interactively and prints the response;
+              # -y (yolo) auto-approves every action so it never blocks on a prompt.
+              echo "kimi -p $t -m $m -y";;
     *)        echo "$harness -p $t";;   # unknown: best-effort headless
   esac
 }
@@ -1037,7 +1057,7 @@ cmd_sessions() {
   else exec tmux attach -t "=$target"; fi
 }
 
-ALL_HARNESSES="codex opencode pi agy reasonix grok"   # claude excluded (it is the orchestrator)
+ALL_HARNESSES="codex opencode pi agy reasonix grok kimi"   # claude excluded (it is the orchestrator)
 
 is_harness() {
   case " $ALL_HARNESSES " in *" $1 "*) return 0 ;; *) return 1 ;; esac
